@@ -1,0 +1,3 @@
+﻿playwright
+streamlit
+python-dotenv
