@@ -1,4 +1,4 @@
-# Studio Oppodcast
+# Oppodcast Studio 
 
 A self-hosted automation tool designed to streamline the podcast publishing workflow for Vodio.
 
