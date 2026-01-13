@@ -9,6 +9,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# --- CRUCIAL: Install FFmpeg for Video Generation (MoviePy) ---
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -16,10 +23,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
-# Create working directories
-RUN mkdir -p inbox processed failed logs
+# Create working directories (Updated for V2)
+# /data is used for secrets.json persistence
+RUN mkdir -p inbox generated assets /data
 
-# Install Chromium only
+# Install Chromium only (for Vodio worker)
 RUN playwright install chromium
 
 # Expose Streamlit port

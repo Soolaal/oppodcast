@@ -1,3 +1,7 @@
-﻿playwright
-streamlit
-python-dotenv
+﻿streamlit
+playwright
+moviepy
+Pillow
+google-auth-oauthlib
+google-api-python-client
+requests

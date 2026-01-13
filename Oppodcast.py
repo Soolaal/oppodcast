@@ -2,60 +2,110 @@ import streamlit as st
 import json
 import os
 import uuid
+import time
+
+# --- OPTIONAL MODULE IMPORTS ---
+try:
+    from insta_generator import InstaGenerator
+except ImportError:
+    InstaGenerator = None
+
+try:
+    from telegram_notifier import TelegramNotifier
+except ImportError:
+    TelegramNotifier = None
+
+try:
+    from youtube_generator import YouTubeGenerator
+except ImportError:
+    YouTubeGenerator = None
+
+try:
+    from youtube_uploader import YouTubeUploader
+except ImportError:
+    YouTubeUploader = None
 
 # --- CONFIGURATION ---
 INBOX_DIR = "inbox"
-# Persistence path for Home Assistant Add-ons
 SECRETS_PATH = "/data/secrets.json"
-# Fallback for local testing
 if not os.path.exists("/data"):
     SECRETS_PATH = "secrets.json"
 
 os.makedirs(INBOX_DIR, exist_ok=True)
+os.makedirs("generated", exist_ok=True)
+os.makedirs("assets", exist_ok=True)
 
 # --- UTILS ---
 def load_secrets():
-    """Load credentials from persistent JSON."""
     if os.path.exists(SECRETS_PATH):
         try:
             with open(SECRETS_PATH, "r") as f:
                 return json.load(f)
         except json.JSONDecodeError:
             pass
-    return {"vodio_login": "", "vodio_password": ""}
+    return {}
 
-def save_secrets(login, password):
-    """Save credentials to persistent storage."""
+def save_secrets(data_dict):
+    current = load_secrets()
+    current.update(data_dict)
     with open(SECRETS_PATH, "w") as f:
-        json.dump({"vodio_login": login, "vodio_password": password}, f)
-    st.toast("✅ Vodio credentials saved!", icon="💾")
+        json.dump(current, f)
+    st.toast("✅ Credentials saved!", icon="💾")
 
-# --- SIDEBAR (Config) ---
+def get_episode_label(filename):
+    json_name = filename.replace(".mp3", ".json")
+    json_path = os.path.join(INBOX_DIR, json_name)
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return f"🎙️ {data.get('title', 'Untitled')}"
+        except:
+            pass
+    return f"📁 {filename}"
+
+# --- SESSION STATE ---
+if "generated_video_path" not in st.session_state:
+    st.session_state["generated_video_path"] = None
+if "generated_img_path" not in st.session_state:
+    st.session_state["generated_img_path"] = None
+if "video_mp3_source" not in st.session_state:
+    st.session_state["video_mp3_source"] = None
+
+# --- SIDEBAR ---
 st.sidebar.title("🔐 Configuration")
 secrets = load_secrets()
 
-with st.sidebar.expander("Vodio Account", expanded=not secrets.get("vodio_login")):
-    login_input = st.text_input("Login / ID", value=secrets.get("vodio_login", ""))
-    pass_input = st.text_input("Password", value=secrets.get("vodio_password", ""), type="password")
-    
-    if st.button("Save Credentials"):
-        save_secrets(login_input, pass_input)
-        st.rerun() 
+with st.sidebar.expander("🎙️ Vodio Account", expanded=not secrets.get("vodio_login")):
+    vodio_login = st.text_input("Username", value=secrets.get("vodio_login", ""))
+    vodio_pass = st.text_input("Password", value=secrets.get("vodio_password", ""), type="password")
 
-# --- BLOCKING CHECK ---
+with st.sidebar.expander("🔔 Telegram Notifications", expanded=False):
+    tg_token = st.text_input("Bot Token", value=secrets.get("tg_token", ""))
+    tg_chat_id = st.text_input("Chat ID", value=secrets.get("tg_chat_id", ""))
+
+if st.sidebar.button("Save Credentials"):
+    save_secrets({
+        "vodio_login": vodio_login,
+        "vodio_password": vodio_pass,
+        "tg_token": tg_token,
+        "tg_chat_id": tg_chat_id
+    })
+    st.rerun()
+
 if not secrets.get("vodio_login") or not secrets.get("vodio_password"):
-    st.title("🎙️ Studio Oppodcast")
-    st.warning("👋 Welcome! Please configure your Vodio credentials in the sidebar to continue.")
-    st.stop() 
+    st.title("🎙️ Oppodcast Studio")
+    st.warning("👋 Welcome! Please configure your Vodio credentials in the sidebar.")
+    st.stop()
 
 # =========================================================
 # MAIN APP
 # =========================================================
 
-st.title("🎙️ Studio Oppodcast")
-st.caption(f"Connected as: {secrets['vodio_login']}")
+st.title("🎙️ Oppodcast Studio")
+st.caption(f"Logged in as: {secrets['vodio_login']}")
 
-# 1. Input Form
+# --- 1. UPLOAD FORM ---
 with st.form("new_episode"):
     st.header("New Episode")
     uploaded_file = st.file_uploader("Audio File (MP3/WAV)", type=["mp3", "wav"])
@@ -64,35 +114,209 @@ with st.form("new_episode"):
     
     submit_btn = st.form_submit_button("Add to Queue 🚀")
 
-# 2. Submission Handler
-if submit_btn:
-    if uploaded_file is not None and title:
-        job_id = str(uuid.uuid4())
+if submit_btn and uploaded_file and title:
+    job_id = str(uuid.uuid4())
+    mp3_filename = f"{job_id}.mp3"
+    mp3_path = os.path.join(INBOX_DIR, mp3_filename)
+    
+    with open(mp3_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
         
-        # Save MP3
-        mp3_filename = f"{job_id}.mp3"
-        mp3_path = os.path.join(INBOX_DIR, mp3_filename)
+    job_data = {
+        "id": job_id,
+        "title": title,
+        "description": description,
+        "mp3_file": mp3_filename,
+        "status": "pending",
+        "created_at": str(time.time())
+    }
+    
+    json_path = os.path.join(INBOX_DIR, f"{job_id}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(job_data, f, ensure_ascii=False, indent=4)
         
-        with open(mp3_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    st.success(f"✅ Episode '{title}' added to queue!")
+
+st.divider()
+
+# --- 2. INSTAGRAM STUDIO ---
+st.header("📸 Instagram Studio")
+
+if not InstaGenerator:
+    st.warning("⚠️ 'insta_generator' module missing.")
+else:
+    gen_tool = InstaGenerator()
+    available_fonts = gen_tool.get_available_fonts()
+    col_conf, col_preview = st.columns([1, 1])
+
+    with col_conf:
+        st.subheader("1. Design")
+        tab_color, tab_image = st.tabs(["🎨 Color", "🖼️ Template"])
+        
+        with tab_color:
+            bg_color = st.color_picker("Background Color", "#1E1E1E")
+            template_file = None 
             
-        # Save Metadata
-        job_data = {
-            "id": job_id,
-            "title": title,
-            "description": description,
-            "mp3_file": mp3_filename,
-            "status": "pending",
-            "created_at": str(os.path.getctime(mp3_path))
-        }
+        with tab_image:
+            uploaded_template = st.file_uploader("Upload Template", type=["png", "jpg", "jpeg"])
+            if uploaded_template:
+                template_path = os.path.join("assets", "temp_template.png")
+                with open(template_path, "wb") as f:
+                    f.write(uploaded_template.getbuffer())
+                template_file = template_path
+            else:
+                template_file = None
+
+        st.subheader("2. Text")
+        default_title = title if title else "My Awesome Episode"
+        insta_title = st.text_area("Title Overlay", value=default_title, height=80)
+        insta_ep_num = st.text_input("Episode Number", value="#01")
         
-        json_path = os.path.join(INBOX_DIR, f"{job_id}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(job_data, f, ensure_ascii=False, indent=4)
+        c1, c2 = st.columns(2)
+        text_color = c1.color_picker("Text Color", "#FFFFFF")
+        accent_color = c2.color_picker("Accent Color", "#FF4B4B")
+        
+        st.subheader("3. Typography")
+        c3, c4 = st.columns(2)
+        selected_font = c3.selectbox("Font", available_fonts)
+        font_size = c4.slider("Size", 30, 150, 70)
+        
+        if st.button("Generate Preview ✨", type="primary"):
+            try:
+                output_filename = f"insta_{uuid.uuid4()}.png"
+                output_path = os.path.join("generated", output_filename)
+                
+                gen_tool.generate_post(
+                    title=insta_title, 
+                    ep_number=insta_ep_num, 
+                    output_path=output_path,
+                    bg_color=bg_color,      
+                    text_color=text_color,
+                    accent_color=accent_color,
+                    font_name=selected_font,
+                    font_size=font_size,
+                    template_path=template_file 
+                )
+                st.session_state["generated_img_path"] = output_path
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    with col_preview:
+        if st.session_state["generated_img_path"] and os.path.exists(st.session_state["generated_img_path"]):
+            img_path = st.session_state["generated_img_path"]
+            st.image(img_path, caption="Final Result", width=400)
             
-        st.success(f"✅ Episode '{title}' added to queue! (ID: {job_id})")
-        st.balloons()
-        st.info("Worker is processing in the background.")
+            c_dl, c_tg = st.columns(2)
+            with c_dl:
+                with open(img_path, "rb") as file:
+                    st.download_button("💾 Download", data=file, file_name="post.png", mime="image/png")
+            
+            with c_tg:
+                 if st.button("📲 Send to Telegram"):
+                    if TelegramNotifier and secrets.get("tg_token"):
+                         notif = TelegramNotifier(secrets["tg_token"], secrets["tg_chat_id"])
+                         caption = f"🎙️ <b>{insta_title}</b>\n\n{description}\n\n#{insta_ep_num}"
+                         if notif.send_photo(img_path, caption):
+                             st.success("Sent!")
+                         else:
+                             st.error("Telegram Error.")
+                    else:
+                        st.error("Telegram not configured.")
+
+st.divider()
+
+# --- 3. YOUTUBE STUDIO ---
+st.header("🎬 YouTube Studio")
+
+if not YouTubeGenerator:
+    st.warning("⚠️ YouTube module missing.")
+else:
+    col_y1, col_y2 = st.columns([1, 2])
+    
+    with col_y1:
+        try:
+            mp3_files = [f for f in os.listdir(INBOX_DIR) if f.endswith(".mp3")]
+            mp3_files.sort(key=lambda x: os.path.getctime(os.path.join(INBOX_DIR, x)), reverse=True)
+        except:
+            mp3_files = []
+            
+        selected_mp3 = st.selectbox("Select Episode", options=mp3_files, format_func=get_episode_label)
+        video_format = st.radio("Format", ["Square (1:1)", "Landscape (16:9)"], index=0)
         
-    else:
-        st.error("⚠️ File and Title are required!")
+        current_img = st.session_state.get("generated_img_path")
+        if current_img:
+            st.success("✅ Image ready")
+            st.image(current_img, width=150)
+        else:
+            st.info("⚠️ Please generate an Instagram image first.")
+        
+        st.divider()
+
+        if st.button("Start Rendering 🎞️"):
+            if not selected_mp3 or not current_img:
+                st.error("Missing Audio or Image.")
+            else:
+                display_name = get_episode_label(selected_mp3).replace("🎙️ ", "")
+                safe_name = "".join([c for c in display_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(" ", "_")
+                output_filename = f"{safe_name}.mp4"
+                audio_full_path = os.path.join(INBOX_DIR, selected_mp3)
+                
+                fmt_code = "square" if "Square" in video_format else "landscape"
+                
+                with st.spinner(f"🎬 Rendering '{display_name}'..."):
+                    try:
+                        yt_gen = YouTubeGenerator(output_dir="generated")
+                        video_path = yt_gen.generate_video(audio_full_path, current_img, output_filename, format=fmt_code)
+                        
+                        st.session_state["generated_video_path"] = video_path
+                        st.session_state["video_mp3_source"] = selected_mp3 
+                        st.success("✅ Rendering complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    with col_y2:
+        video_path = st.session_state.get("generated_video_path")
+        
+        if video_path and os.path.exists(video_path):
+            st.subheader("📺 Preview & Publish")
+            st.video(video_path)
+            
+            with open(video_path, "rb") as f:
+                st.download_button("Download MP4 📥", data=f, file_name=os.path.basename(video_path), mime="video/mp4")
+
+            st.divider()
+            st.caption("Upload to YouTube")
+            
+            if not YouTubeUploader:
+                st.warning("Uploader module missing.")
+            elif not os.path.exists("token.pickle"):
+                st.error("⚠️ 'token.pickle' missing. Authenticate locally first.")
+            else:
+                c_priv, c_btn = st.columns([1, 1])
+                privacy = c_priv.selectbox("Visibility", ["private", "unlisted", "public"], index=0)
+                
+                if c_btn.button("Upload to YouTube 🔴"):
+                    source_mp3 = st.session_state.get("video_mp3_source")
+                    if not source_mp3: source_mp3 = selected_mp3
+                    
+                    display_name = get_episode_label(source_mp3).replace("🎙️ ", "")
+                    json_path = os.path.join(INBOX_DIR, source_mp3.replace(".mp3", ".json"))
+                    
+                    vid_title = display_name
+                    vid_desc = description if description else "Generated by Oppodcast."
+                    
+                    if os.path.exists(json_path):
+                        with open(json_path, "r") as f:
+                            d = json.load(f)
+                            vid_title = d.get("title", vid_title)
+                            vid_desc = d.get("description", vid_desc)
+
+                    with st.spinner("Uploading..."):
+                        try:
+                            uploader = YouTubeUploader()
+                            link = uploader.upload_video(video_path, vid_title, vid_desc, privacy=privacy)
+                            st.success(f"✅ Live! [Watch Video]({link})")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"Upload Error: {e}")
