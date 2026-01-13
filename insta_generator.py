@@ -1,61 +1,58 @@
 from PIL import Image, ImageDraw, ImageFont
-import textwrap
 import os
 
 class InstaGenerator:
-    def __init__(self, template_path="assets/template_insta.png", font_path="assets/font.ttf"):
-        self.template_path = template_path
-        self.font_path = font_path
-        # Création des dossiers si besoin
-        os.makedirs("assets", exist_ok=True)
-        os.makedirs("generated", exist_ok=True)
+    def __init__(self, assets_dir="assets"):
+        self.assets_dir = assets_dir
+        os.makedirs(self.assets_dir, exist_ok=True)
 
-    def generate_post(self, title, episode_number, output_path):
-        """
-        Génère une image 1080x1080 pour Instagram.
-        """
-        # 1. Charger le template (ou créer un fond noir si absent)
-        try:
-            img = Image.open(self.template_path).convert("RGBA")
-            img = img.resize((1080, 1080))
-        except FileNotFoundError:
-            print("⚠️ Template non trouvé, utilisation d'un fond uni.")
-            img = Image.new('RGBA', (1080, 1080), color='#1E1E1E')
+    def get_available_fonts(self):
+        return [f for f in os.listdir(self.assets_dir) if f.lower().endswith(".ttf")]
 
-        draw = ImageDraw.Draw(img)
-
-        # 2. Charger la police (ou default si absente)
-        try:
-            # Taille 60 pour le titre, 40 pour le sous-titre
-            title_font = ImageFont.truetype(self.font_path, 80)
-            subtitle_font = ImageFont.truetype(self.font_path, 50)
-        except IOError:
-            title_font = ImageFont.load_default()
-            subtitle_font = ImageFont.load_default()
-
-        # 3. Écrire le Numéro d'épisode (En haut au centre ou selon ton design)
-        episode_text = f"ÉPISODE #{episode_number}"
-        draw.text((540, 300), episode_text, font=subtitle_font, fill="#FF4B4B", anchor="mm")
-
-        # 4. Écrire le Titre (Centré avec retour à la ligne automatique)
-        # On wrap le texte pour qu'il ne sorte pas de l'image
-        lines = textwrap.wrap(title, width=20) # Ajuster la width selon la police
-        y_text = 540 # Centre vertical
+    def generate_post(self, title, ep_number, output_path, bg_color="#1E1E1E", text_color="#FFFFFF", accent_color="#FF4B4B", font_name=None, font_size=70, template_path=None):
         
-        for line in lines:
-            # Calculer la taille de la ligne pour bien centrer
-            bbox = draw.textbbox((0, 0), line, font=title_font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            
-            draw.text(((1080 - text_width) / 2, y_text), line, font=title_font, fill="white")
-            y_text += text_height + 20 # Espacement entre les lignes
+        # 1. Determine Output Size & Base Image
+        if template_path and os.path.exists(template_path):
+            try:
+                # Use the template AS IS (Respect original dimensions)
+                img = Image.open(template_path).convert("RGBA")
+                W, H = img.size
+            except Exception as e:
+                print(f"Error loading template: {e}")
+                # Fallback to square if loading fails
+                W, H = 1080, 1080
+                img = Image.new("RGBA", (W, H), color=bg_color)
+        else:
+            # No template = Default Square
+            W, H = 1080, 1080
+            img = Image.new("RGBA", (W, H), color=bg_color)
+        
+        draw = ImageDraw.Draw(img)
+        
+        # 2. Font Loading
+        font_title = None
+        font_ep = None
+        
+        if font_name:
+            font_path = os.path.join(self.assets_dir, font_name)
+            if os.path.exists(font_path):
+                try:
+                    font_title = ImageFont.truetype(font_path, int(font_size))
+                    font_ep = ImageFont.truetype(font_path, int(font_size * 1.5))
+                except:
+                    pass
 
-        # 5. Sauvegarder
+        if font_title is None:
+            font_title = ImageFont.load_default()
+            font_ep = ImageFont.load_default()
+
+        # 3. Draw Text
+        if ep_number:
+            draw.text((W/2, H/3), ep_number, font=font_ep, fill=accent_color, anchor="mm")
+        
+        if title:
+            draw.text((W/2, H/2), title, font=font_title, fill=text_color, anchor="mm", align="center")
+
+        # 4. Save
         img.save(output_path)
         return output_path
-
-# Test rapide si lancé direct
-if __name__ == "__main__":
-    gen = InstaGenerator()
-    gen.generate_post("Comment automatiser son Podcast avec Python ?", "42", "test_insta.png")
