@@ -1,7 +1,11 @@
 ﻿streamlit
 playwright
-moviepy
-Pillow
 google-auth-oauthlib
 google-api-python-client
 requests
+playwright
+streamlit
+python-dotenv
+Pillow==10.2.0
+moviepy==1.0.3
+decorator<5.0
