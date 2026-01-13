@@ -33,5 +33,7 @@ RUN playwright install chromium
 # Expose Streamlit port
 EXPOSE 8501
 
-# Start Worker and Streamlit in parallel
-CMD ["/bin/bash", "-c", "python worker.py & streamlit run Oppodcast.py"]
+
+# 2. On lance tout en une seule ligne (plus besoin de run.sh !)
+CMD ["/bin/bash", "-c", "python worker.py & streamlit run Oppodcast.py --server.port=8501 --server.address=0.0.0.0"]
+

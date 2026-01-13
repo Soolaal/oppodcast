@@ -1,4 +1,4 @@
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import os
 
 class InstaGenerator:
@@ -7,52 +7,109 @@ class InstaGenerator:
         os.makedirs(self.assets_dir, exist_ok=True)
 
     def get_available_fonts(self):
-        return [f for f in os.listdir(self.assets_dir) if f.lower().endswith(".ttf")]
+        fonts = [f for f in os.listdir(self.assets_dir) if f.endswith(".ttf")]
+        if not fonts:
+            return ["Default"]
+        return fonts
 
-    def generate_post(self, title, ep_number, output_path, bg_color="#1E1E1E", text_color="#FFFFFF", accent_color="#FF4B4B", font_name=None, font_size=70, template_path=None):
+    def generate_post(self, title, ep_number, output_path, 
+                      bg_color="#1E1E1E", 
+                      text_color="#FFFFFF",
+                      accent_color="#FF4B4B",
+                      font_name="Default",
+                      font_size=60,
+                      background_image_path=None,  # Renommé pour la clarté
+                      darken_bg=True):             # Option pour assombrir le fond
         
-        # 1. Determine Output Size & Base Image
-        if template_path and os.path.exists(template_path):
+        # 1. CRÉATION DU FOND
+        if background_image_path and os.path.exists(background_image_path):
             try:
-                # Use the template AS IS (Respect original dimensions)
-                img = Image.open(template_path).convert("RGBA")
-                W, H = img.size
+                # Charge l'image utilisateur comme fond
+                img = Image.open(background_image_path).convert("RGB")
+                
+                # Optionnel : Redimensionner si l'image est énorme (> 1920px)
+                # pour optimiser la perf et la taille fichier
+                max_dim = 1350 # Standard Insta Portrait
+                if max(img.size) > max_dim:
+                    ratio = max_dim / max(img.size)
+                    new_size = (int(img.width * ratio), int(img.height * ratio))
+                    img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
+                width, height = img.size
+
+                # Assombrir l'image pour que le texte ressorte
+                if darken_bg:
+                    enhancer = ImageEnhance.Brightness(img)
+                    img = enhancer.enhance(0.4) # 40% de luminosité
+                    
             except Exception as e:
-                print(f"Error loading template: {e}")
-                # Fallback to square if loading fails
-                W, H = 1080, 1080
-                img = Image.new("RGBA", (W, H), color=bg_color)
+                print(f"Erreur Image de Fond: {e}, fallback couleur.")
+                width, height = 1080, 1080
+                img = Image.new('RGB', (width, height), color=bg_color)
         else:
-            # No template = Default Square
-            W, H = 1080, 1080
-            img = Image.new("RGBA", (W, H), color=bg_color)
-        
+            # Pas d'image = Fond Couleur Unie
+            width, height = 1080, 1080
+            img = Image.new('RGB', (width, height), color=bg_color)
+
         draw = ImageDraw.Draw(img)
-        
-        # 2. Font Loading
-        font_title = None
-        font_ep = None
-        
-        if font_name:
-            font_path = os.path.join(self.assets_dir, font_name)
-            if os.path.exists(font_path):
+
+        # 2. GESTION POLICE (Identique)
+        selected_font_path = None
+        if font_name != "Default":
+            selected_font_path = os.path.join(self.assets_dir, font_name)
+
+        try:
+            if selected_font_path and os.path.exists(selected_font_path):
+                font_title = ImageFont.truetype(selected_font_path, font_size)
+                font_number = ImageFont.truetype(selected_font_path, int(font_size * 1.5))
+            else:
+                # Fallback Arial
                 try:
-                    font_title = ImageFont.truetype(font_path, int(font_size))
-                    font_ep = ImageFont.truetype(font_path, int(font_size * 1.5))
+                    font_title = ImageFont.truetype("arial.ttf", font_size)
+                    font_number = ImageFont.truetype("arial.ttf", int(font_size * 1.5))
                 except:
-                    pass
-
-        if font_title is None:
+                    font_title = ImageFont.load_default()
+                    font_number = ImageFont.load_default()
+        except Exception:
             font_title = ImageFont.load_default()
-            font_ep = ImageFont.load_default()
+            font_number = ImageFont.load_default()
 
-        # 3. Draw Text
-        if ep_number:
-            draw.text((W/2, H/3), ep_number, font=font_ep, fill=accent_color, anchor="mm")
+        # 3. TEXTE
         
-        if title:
-            draw.text((W/2, H/2), title, font=font_title, fill=text_color, anchor="mm", align="center")
+        # Numéro (Haut)
+        y_header = int(height * 0.15)
+        draw.text((width/2, y_header), ep_number, font=font_number, fill=accent_color, anchor="mm")
 
-        # 4. Save
+        # Titre (Centré Multi-lignes)
+        lines = []
+        words = title.split()
+        current_line = []
+        margin = int(width * 0.15) # Marges plus larges (15%)
+        max_width = width - (margin * 2)
+
+        for word in words:
+            current_line.append(word)
+            line_width = draw.textlength(" ".join(current_line), font=font_title)
+            if line_width > max_width: 
+                current_line.pop()
+                lines.append(" ".join(current_line))
+                current_line = [word]
+        lines.append(" ".join(current_line))
+
+        total_text_height = len(lines) * (font_size * 1.3)
+        start_y = (height / 2) - (total_text_height / 2)
+        y_text = start_y
+        
+        # Ombre portée toujours active sur fond image
+        has_shadow = True if background_image_path else False
+        
+        for line in lines:
+            if has_shadow:
+                # Ombre noire forte pour lisibilité
+                draw.text((width/2 + 4, y_text + 4), line, font=font_title, fill="black", anchor="mm")
+            
+            draw.text((width/2, y_text), line, font=font_title, fill=text_color, anchor="mm")
+            y_text += font_size * 1.3
+
         img.save(output_path)
         return output_path
