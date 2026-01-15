@@ -5,7 +5,7 @@ import uuid
 import time
 from datetime import datetime
 
-# --- 1. CONFIGURATION DE LA PAGE (DOIT ÊTRE LA PREMIÈRE COMMANDE STREAMLIT) ---
+# --- 1. CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="Oppodcast Studio",
     page_icon="🎙️",
@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS PERSONNALISÉ (Pour un look plus "App") ---
+# --- CSS PERSONNALISÉ ---
 st.markdown("""
 <style>
     .block-container {padding-top: 2rem;}
@@ -22,8 +22,6 @@ st.markdown("""
     .stButton button {width: 100%; border-radius: 8px; font-weight: 600;}
     div[data-testid="stExpander"] {border: 1px solid #333; border-radius: 8px;}
     div[data-baseweb="input"] {border-radius: 6px;}
-    
-    /* Agrandir les titres des expanders */
     div[data-testid="stExpander"] summary p {
         font-size: 1.3rem !important;
         font-weight: 600 !important;
@@ -32,7 +30,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- IMPORTS OPTIONNELS ---
+# --- IMPORTS ---
 try: from insta_generator import InstaGenerator
 except ImportError: InstaGenerator = None
 try: from telegram_notifier import TelegramNotifier
@@ -43,8 +41,13 @@ try: from youtube_uploader import YouTubeUploader
 except ImportError: YouTubeUploader = None
 try: from shorts_generator import ShortsGenerator 
 except ImportError: ShortsGenerator = None
+try: from translations import TRANS
+except ImportError: 
+    # Fallback si translations.py n'existe pas encore
+    TRANS = {"fr": {}}
+    st.error("⚠️ Fichier translations.py manquant !")
 
-# --- GESTION DES CHEMINS (Compatible Home Assistant / Local) ---
+# --- GESTION DES CHEMINS ---
 if os.path.exists("/share"):
     BASE_DIR = "/share/oppodcast"
 else:
@@ -59,6 +62,12 @@ for d in [INBOX_DIR, GENERATED_DIR, ASSETS_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # --- FONCTIONS UTILITAIRES ---
+def t(key):
+    """Récupère le texte dans la langue choisie"""
+    lang = st.session_state.get("language", "fr")
+    # Retourne le texte ou la clé si introuvable, fallback sur français
+    return TRANS.get(lang, TRANS.get("fr", {})).get(key, key)
+
 def load_secrets():
     if os.path.exists(SECRETS_PATH):
         try:
@@ -82,38 +91,62 @@ def get_episode_label(filename):
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            real_title = data.get("title", "Sans titre")
+            real_title = data.get("title", t("untitled"))
             return f"🎙️ {real_title}"
         except:
             pass
     return f"📁 {filename}"
 
 # --- SESSION STATE ---
-for key in ["generated_video_path", "generated_img_path", "video_mp3_source", "generated_short_path"]:
+for key in ["generated_video_path", "generated_img_path", "video_mp3_source", "generated_short_path", "language"]:
     if key not in st.session_state:
         st.session_state[key] = None
+if st.session_state["language"] is None:
+    st.session_state["language"] = "fr" # Défaut
 
 # =========================================================
-# BARRE LATÉRALE (SIDEBAR) - DESIGN AMÉLIORÉ
+# BARRE LATÉRALE
 # =========================================================
 secrets = load_secrets()
-
-# Logo (Si fichier présent)
 logo_path = os.path.join(ASSETS_DIR, "logo.png")
 if os.path.exists(logo_path):
     st.sidebar.image(logo_path, width=180)
 
-st.sidebar.header("Paramètres")
+st.sidebar.header(t("settings"))
 
-with st.sidebar.expander("Compte Vodio", expanded=not secrets.get("vodio_login")):
-    vodio_login = st.text_input("Identifiant", value=secrets.get("vodio_login", ""))
-    vodio_pass = st.text_input("Mot de passe", value=secrets.get("vodio_password", ""), type="password")
+# --- SÉLECTEUR DE LANGUE ---
+# On utilise radio avec une callback pour éviter le rerun explicite inutile
+# --- SÉLECTEUR DE LANGUE (AVEC DRAPEAUX) ---
+col_lang = st.sidebar.container()
 
-with st.sidebar.expander("Telegram Bot", expanded=False):
+# Dictionnaire de mapping Code -> Drapeau
+LANG_FLAGS = {
+    "fr": "🇫🇷 Français",
+    "en": "🇬🇧 English"
+}
+
+lang_choice = col_lang.radio(
+    "Language / Langue",
+    options=["fr", "en"], # Les valeurs réelles stockées
+    format_func=lambda x: LANG_FLAGS.get(x, x), # Ce qui est affiché à l'écran
+    index=0 if st.session_state["language"] == "fr" else 1,
+    horizontal=True
+)
+
+if lang_choice != st.session_state["language"]:
+    st.session_state["language"] = lang_choice
+    st.rerun()
+
+
+with st.sidebar.expander(t("vodio_account"), expanded=not secrets.get("vodio_login")):
+    vodio_login = st.text_input(t("login"), value=secrets.get("vodio_login", ""))
+    vodio_pass = st.text_input(t("password"), value=secrets.get("vodio_password", ""), type="password")
+
+with st.sidebar.expander(t("tg_bot"), expanded=False):
     tg_token = st.text_input("Bot Token", value=secrets.get("tg_token", ""))
     tg_chat_id = st.text_input("Chat ID", value=secrets.get("tg_chat_id", ""))
 
-if st.sidebar.button("Sauvegarder Config", type="primary"):
+if st.sidebar.button(t("save_config"), type="primary"):
     save_secrets({
         "vodio_login": vodio_login,
         "vodio_password": vodio_pass,
@@ -123,355 +156,328 @@ if st.sidebar.button("Sauvegarder Config", type="primary"):
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.caption(f"📂 Stockage : `{BASE_DIR}`")
+st.sidebar.caption(f"{t('storage_path')} `{BASE_DIR}`")
 
-# Si pas de login, on bloque l'accès
 if not secrets.get("vodio_login"):
     st.title("🎙️ Studio Oppodcast")
-    st.error("🔒 Veuillez configurer vos identifiants Vodio dans le menu latéral.")
+    st.error(t("config_error"))
     st.stop()
 
 # =========================================================
 # APPLICATION PRINCIPALE
 # =========================================================
 
-# En-tête avec colonnes pour aligner
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.title("Oppodcast Studio")
-    st.caption(f"Connecté en tant que **{secrets['vodio_login']}**")
+    st.caption(f"{t('connected_as')} **{secrets['vodio_login']}**")
 
 st.markdown("---")
 
-# --- SECTION 1 : UPLOAD (EXPANDER OUVERT) ---
-with st.expander("📤 1. Nouvel Épisode", expanded=True):
+# --- SECTION 1 : UPLOAD ---
+with st.expander(t("s1_title"), expanded=True):
     with st.container(border=True):
         col_u1, col_u2 = st.columns([1, 2])
         with col_u1:
-            st.subheader("Upload Audio")
-            st.markdown("Déposez votre fichier audio ici pour démarrer le traitement.")
+            st.subheader(t("s1_col_title"))
+            st.markdown(t("s1_desc"))
         
         with col_u2:
-            uploaded_file = st.file_uploader("Fichier Audio (MP3/WAV)", type=["mp3", "wav"], label_visibility="collapsed")
+            uploaded_file = st.file_uploader(t("s1_label"), type=["mp3", "wav"], label_visibility="collapsed")
             
             if uploaded_file:
                 st.audio(uploaded_file, format='audio/mp3')
 
-                with st.expander("Détails de l'épisode", expanded=True):
-                    title = st.text_input("Titre de l'épisode", placeholder="Ex: Mon super épisode #42")
-                    description = st.text_area("Description", placeholder="Description pour YouTube/Vodio...")
+                with st.expander(t("ep_details"), expanded=True):
+                    title = st.text_input(t("ep_title"), placeholder=t("ep_title_ph"))
+                    description = st.text_area(t("ep_desc"), placeholder=t("ep_desc_ph"))
                     
-                    if st.button("🚀 Mettre en file d'attente", type="primary"):
+                    if st.button(t("btn_queue"), type="primary"):
                         if title:
                             job_id = str(uuid.uuid4())
                             mp3_filename = f"{job_id}.mp3"
                             mp3_path = os.path.join(INBOX_DIR, mp3_filename)
-                            
                             with open(mp3_path, "wb") as f:
                                 f.write(uploaded_file.getbuffer())
-                                
                             job_data = {
-                                "id": job_id,
-                                "title": title,
-                                "description": description,
-                                "mp3_file": mp3_filename,
-                                "status": "pending",
+                                "id": job_id, "title": title, "description": description,
+                                "mp3_file": mp3_filename, "status": "pending",
                                 "created_at": str(os.path.getctime(mp3_path))
                             }
-                            
                             with open(os.path.join(INBOX_DIR, f"{job_id}.json"), "w", encoding="utf-8") as f:
                                 json.dump(job_data, f, ensure_ascii=False, indent=4)
-                            
-                            st.success(f"Épisode **{title}** ajouté à la file !")
+                            st.success(f"{t('success_queue')} ({title})")
                             time.sleep(1)
                             st.rerun()
                         else:
-                            st.error("Le titre est obligatoire.")
+                            st.error(t("err_title"))
 
-# --- SECTION 2 : INSTAGRAM STUDIO (EXPANDER FERMÉ) ---
-with st.expander("📸 2. Studio Instagram", expanded=False):
+# --- SECTION 2 : INSTAGRAM STUDIO ---
+with st.expander(t("s2_title"), expanded=False):
     if not InstaGenerator:
-        st.error("❌ Module `insta_generator` manquant.")
+        st.error(t("mod_missing"))
     else:
         with st.container(border=True):
             gen_tool = InstaGenerator()
             available_fonts = gen_tool.get_available_fonts()
-            
             col_conf, col_preview = st.columns([1, 1], gap="large")
             
             with col_conf:
-                st.subheader("Personnalisation")
-                tab_visuel, tab_texte = st.tabs(["Visuel", "Texte"])
-                
+                st.subheader(t("custom"))
+                tab_visuel, tab_texte = st.tabs([t("tab_visual"), t("tab_text")])
                 with tab_visuel:
-                    uploaded_template = st.file_uploader("Importer une Image de Fond (Optionnel)", type=["png", "jpg", "jpeg"])
+                    uploaded_template = st.file_uploader(t("upload_bg"), type=["png", "jpg", "jpeg"])
                     template_file = None
                     if uploaded_template:
                         template_path = os.path.join(ASSETS_DIR, "temp_template.png")
-                        with open(template_path, "wb") as f:
-                            f.write(uploaded_template.getbuffer())
+                        with open(template_path, "wb") as f: f.write(uploaded_template.getbuffer())
                         template_file = template_path
-                        st.success("Fond chargé !")
-                    
-                    bg_color = st.color_picker("Sinon : Couleur unie", "#1E1E1E")
+                        st.success(t("bg_loaded"))
+                    bg_color = st.color_picker(t("color_bg"), "#1E1E1E")
                     
                 with tab_texte:
                     default_title = title if 'title' in locals() and title else "Mon Super Titre"
-                    insta_title = st.text_area("Titre sur l'image", value=default_title, height=100)
-                    insta_ep_num = st.text_input("Numéro", value="#01")
-                    
+                    insta_title = st.text_area(t("txt_on_img"), value=default_title, height=100)
+                    insta_ep_num = st.text_input(t("txt_ep_num"), value="#01")
                     c_txt1, c_txt2 = st.columns(2)
-                    text_color = c_txt1.color_picker("Texte", "#FFFFFF")
-                    accent_color = c_txt2.color_picker("Accent", "#FF4B4B")
-                    
+                    text_color = c_txt1.color_picker(t("color_txt"), "#FFFFFF")
+                    accent_color = c_txt2.color_picker(t("color_accent"), "#FF4B4B")
                     c_font1, c_font2 = st.columns(2)
-                    selected_font = c_font1.selectbox("Police", available_fonts)
-                    font_size = c_font2.slider("Taille", 30, 150, 70)
+                    selected_font = c_font1.selectbox(t("font"), available_fonts)
+                    font_size = c_font2.slider(t("size"), 30, 150, 70)
 
-                if st.button("Générer l'Image", type="primary", use_container_width=True):
+                if st.button(t("btn_gen_img"), type="primary", use_container_width=True):
                     try:
                         output_filename = f"insta_{uuid.uuid4()}.png"
                         output_path = os.path.join(GENERATED_DIR, output_filename)
-                        
                         gen_tool.generate_post(
-                            title=insta_title,
-                            ep_number=insta_ep_num,
-                            output_path=output_path,
-                            bg_color=bg_color,
-                            text_color=text_color,
-                            accent_color=accent_color,
-                            font_name=selected_font,
-                            font_size=font_size,
-                            background_image_path=template_file,
-                            darken_bg=True
+                            title=insta_title, ep_number=insta_ep_num, output_path=output_path,
+                            bg_color=bg_color, text_color=text_color, accent_color=accent_color,
+                            font_name=selected_font, font_size=font_size,
+                            background_image_path=template_file, darken_bg=True
                         )
                         st.session_state["generated_img_path"] = output_path
-                    except Exception as e:
-                        st.error(f"Erreur : {e}")
+                    except Exception as e: st.error(f"{t('err_gen_img')} : {e}")
 
             with col_preview:
-                st.subheader("Aperçu")
+                st.subheader(t("preview"))
                 if st.session_state["generated_img_path"] and os.path.exists(st.session_state["generated_img_path"]):
                     img_path = st.session_state["generated_img_path"]
                     st.image(img_path, caption="Post Instagram généré", use_container_width=True)
-                    
                     c_dl, c_tg = st.columns(2)
                     with c_dl:
                         with open(img_path, "rb") as file:
-                            st.download_button("💾 Télécharger", data=file, file_name="post.png", mime="image/png", use_container_width=True)
+                            st.download_button(t("btn_dl"), data=file, file_name="post.png", mime="image/png", use_container_width=True)
                     with c_tg:
-                        if st.button("Envoyer Telegram", use_container_width=True):
+                        if st.button(t("btn_tg"), use_container_width=True):
                             if TelegramNotifier and secrets.get("tg_token"):
                                 notif = TelegramNotifier(secrets["tg_token"], secrets["tg_chat_id"])
                                 cap = f"🎙 {insta_title}\n\n#{insta_ep_num}"
-                                if notif.send_photo(img_path, cap):
-                                    st.success("Envoyé !")
-                                else:
-                                    st.error("Erreur Telegram")
-                            else:
-                                st.warning("Telegram non configuré")
-                else:
-                    st.info("Cliquez sur 'Générer' pour voir le résultat.")
+                                if notif.send_photo(img_path, cap): st.success(t("sent_tg"))
+                                else: st.error(t("err_tg"))
+                            else: st.warning(t("warn_tg"))
+                else: st.info(t("info_click_gen"))
 
-# --- SECTION 3 : YOUTUBE STUDIO (EXPANDER FERMÉ) ---
-with st.expander("🎬 3. Studio YouTube", expanded=False):
+# --- SECTION 3 : YOUTUBE STUDIO ---
+with st.expander(t("s3_title"), expanded=False):
     if not YouTubeGenerator:
-        st.error("❌ Module `youtube_generator` manquant.")
+        st.error(t("mod_missing"))
     else:
         with st.container(border=True):
             col_y1, col_y2 = st.columns([1, 1], gap="large")
             
             with col_y1:
-                st.subheader("Création de la vidéo")
-                
+                st.subheader(t("create_vid"))
                 mp3_files = [f for f in os.listdir(INBOX_DIR) if f.endswith(".mp3")]
                 mp3_files.sort(key=lambda x: os.path.getctime(os.path.join(INBOX_DIR, x)), reverse=True)
                 
-                selected_mp3 = st.selectbox("Choisir l'épisode source", options=mp3_files, format_func=get_episode_label)
-                video_format = st.radio("Format Vidéo", ["Carré (1:1)", "Paysage (16:9)"], horizontal=True)
+                selected_mp3 = st.selectbox(t("choose_ep"), options=mp3_files, format_func=get_episode_label)
+                video_format = st.radio(t("vid_format"), [t("fmt_square"), t("fmt_landscape")], horizontal=True)
                 
+                st.divider()
+                st.markdown(f"##### {t('perf_settings')}")
+                # CHOIX DU MODE DE RENDU
+                render_mode = st.selectbox(
+                    t("render_mode"),
+                    options=["turbo", "balanced", "quality"],
+                    format_func=lambda x: {
+                        "turbo": t("turbo_desc"),
+                        "balanced": t("balanced_desc"),
+                        "quality": t("quality_desc")
+                    }[x]
+                )
+                
+                bg_color_hex = "#000000"
+                if render_mode == "turbo":
+                    bg_color_hex = st.color_picker(t("bg_color"), "#101010")
+
                 current_img = st.session_state.get("generated_img_path")
                 if not current_img:
-                    st.warning("⚠️ Générez d'abord une image Instagram ci-dessus.")
+                    st.warning(t("warn_img"))
                 
-                if st.button("Lancer le rendu Vidéo", type="primary", disabled=(not selected_mp3 or not current_img), use_container_width=True):
+                if st.button(t("btn_render_vid"), type="primary", disabled=(not selected_mp3 or not current_img), use_container_width=True):
                     display_name = get_episode_label(selected_mp3).replace("🎙️ ", "")
                     safe_name = "".join([c for c in display_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(" ", "_")
                     output_filename = f"{safe_name}.mp4"
                     audio_path = os.path.join(INBOX_DIR, selected_mp3)
-                    fmt = "square" if "Carré" in video_format else "landscape"
+                    fmt = "square" if t("fmt_square") in video_format else "landscape"
                     
-                    # --- BARRE DE CHARGEMENT VIDÉO ---
                     progress_container = st.empty()
-                    progress_bar = progress_container.progress(0, text="Initialisation de l'encodage...")
-                    
-                    def update_progress(percent):
-                        progress_bar.progress(percent, text=f"Encodage en cours... {percent}%")
+                    progress_bar = progress_container.progress(0, text=t("init_enc"))
+                    def update_progress(percent): progress_bar.progress(percent, text=f"{t('encoding')} {percent}%")
                     
                     try:
                         yt_gen = YouTubeGenerator(output_dir=GENERATED_DIR)
                         vid_path = yt_gen.generate_video(
-                            audio_path, 
-                            current_img, 
-                            output_filename, 
-                            format=fmt,
-                            progress_callback=update_progress # <--- Callback
+                            audio_path, current_img, output_filename, format=fmt,
+                            progress_callback=update_progress,
+                            render_mode=render_mode,   # <--- On passe le mode
+                            bg_color=bg_color_hex      # <--- On passe la couleur
                         )
-                        
+                        progress_bar.progress(100, text="100% !")
+                        time.sleep(0.5)
                         progress_container.empty()
                         st.session_state["generated_video_path"] = vid_path
                         st.session_state["video_mp3_source"] = selected_mp3
-                        st.success("Rendu terminé avec succès ! 🎉")
+                        st.success(t("success_render"))
+                        time.sleep(1)
                         st.rerun()
-                        
                     except Exception as e:
                         progress_container.empty()
-                        st.error(f"Erreur rendu : {e}")
+                        st.error(f"Erreur : {e}")
 
             with col_y2:
-                st.subheader("Aperçu & Upload")
+                st.subheader(t("preview"))
                 vid_path = st.session_state.get("generated_video_path")
-                
                 if vid_path and os.path.exists(vid_path):
                     st.video(vid_path)
                     with open(vid_path, "rb") as f:
                         st.download_button("Télécharger MP4", data=f, file_name=os.path.basename(vid_path), mime="video/mp4", use_container_width=True)
-                    
                     st.divider()
-                    st.markdown("**Upload YouTube**")
-                    
                     if YouTubeUploader and os.path.exists("token.pickle"):
-                        privacy = st.selectbox("Visibilité", ["private", "unlisted", "public"])
-                        if st.button("Envoyer sur YouTube", type="primary", use_container_width=True):
+                        privacy = st.selectbox(t("visibility"), ["private", "unlisted", "public"])
+                        if st.button(t("btn_send_yt"), type="primary", use_container_width=True):
                             try:
                                 uploader = YouTubeUploader()
                                 json_path = os.path.join(INBOX_DIR, st.session_state["video_mp3_source"].replace(".mp3", ".json"))
                                 vid_title = get_episode_label(st.session_state["video_mp3_source"]).replace("🎙️ ", "")
                                 vid_desc = "Généré par Oppodcast."
-                                
                                 if os.path.exists(json_path):
                                     with open(json_path, "r") as f:
                                         d = json.load(f)
                                         vid_title = d.get("title", vid_title)
                                         vid_desc = d.get("description", vid_desc)
-                                
                                 link = uploader.upload_video(vid_path, vid_title, vid_desc, privacy=privacy)
-                                st.success(f"✅ En ligne ! [Voir la vidéo]({link})")
-                            except Exception as e:
-                                st.error(f"Erreur Upload : {e}")
+                                st.success(f"{t('online_link')}({link})")
+                            except Exception as e: st.error(f"Erreur Upload : {e}")
+                    else: st.info(t("configure_yt"))
+                else: st.info(t("info_no_vid"))
 
-                    else:
-                        st.info("Configurez YouTube (token.pickle) pour uploader directement.")
-                else:
-                    st.info("Aucune vidéo générée pour le moment.")
-
-# --- SECTION 4 : STUDIO SHORTS (EXPANDER FERMÉ) ---
-with st.expander("📱 4. Studio Shorts (Reels/TikTok)", expanded=False):
+# --- SECTION 4 : STUDIO SHORTS ---
+with st.expander(t("s4_title"), expanded=False):
     if not ShortsGenerator:
-        st.warning("Module Shorts manquant.")
+        st.warning(t("mod_missing"))
     else:
         with st.container(border=True):
             col_s1, col_s2 = st.columns([1, 1], gap="large")
-            
             with col_s1:
-                st.subheader("Création du Short")
-                
+                st.subheader(t("create_short"))
                 if 'selected_mp3' not in locals() or not selected_mp3 or not st.session_state["generated_img_path"]:
-                    st.warning("Sélectionnez un épisode et générez une image d'abord.")
+                    st.warning(t("warn_img"))
                 else:
-                    st.info(f"Source : {get_episode_label(selected_mp3)}")
-                    
+                    st.info(f"{t('info_source')} {get_episode_label(selected_mp3)}")
                     c_t1, c_t2 = st.columns(2)
-                    start_time = c_t1.number_input("Début (secondes)", min_value=0, value=0)
-                    duration = c_t2.number_input("Durée (secondes)", min_value=15, max_value=60, value=58) 
+                    start_time = c_t1.number_input(t("start_sec"), min_value=0, value=0)
+                    duration = c_t2.number_input(t("dur_sec"), min_value=15, max_value=60, value=58) 
                     
-                    if st.button("🎬 Générer le Short", type="primary"):
+                    st.divider()
+                    st.markdown(f"##### {t('perf_settings')}")
+                    # CHOIX DU MODE DE RENDU (SHORTS)
+                    short_render_mode = st.selectbox(
+                        t("render_mode_short"),
+                        options=["turbo", "balanced", "quality"],
+                        format_func=lambda x: {
+                            "turbo": t("turbo_desc"),
+                            "balanced": t("balanced_desc"),
+                            "quality": t("quality_desc")
+                        }[x],
+                        key="short_mode"
+                    )
+                    short_bg_color = "#000000"
+                    if short_render_mode == "turbo":
+                        short_bg_color = st.color_picker(t("bg_color_short"), "#101010", key="short_color")
+
+                    if st.button(t("btn_gen_short"), type="primary"):
                         short_name = f"short_{uuid.uuid4()}.mp4"
                         audio_full_path = os.path.join(INBOX_DIR, selected_mp3)
                         img_full_path = st.session_state["generated_img_path"]
                         
-                        # --- BARRE DE CHARGEMENT SHORT ---
                         progress_short_container = st.empty()
-                        progress_short = progress_short_container.progress(0, text="Initialisation Short...")
-                        
-                        def update_short_bar(percent):
-                            progress_short.progress(percent, text=f"Génération Short... {percent}%")
+                        progress_short = progress_short_container.progress(0, text=t("init_short"))
+                        def update_short_bar(percent): progress_short.progress(percent, text=f"{t('gen_short')} {percent}%")
                         
                         try:
                             sg = ShortsGenerator(output_dir=GENERATED_DIR)
-                            
                             short_path = sg.generate_short(
-                                audio_full_path, 
-                                img_full_path, 
-                                start_time=start_time, 
-                                duration=duration, 
+                                audio_full_path, img_full_path, 
+                                start_time=start_time, duration=duration, 
                                 output_filename=short_name,
-                                progress_callback=update_short_bar # <--- Callback Short
+                                progress_callback=update_short_bar,
+                                render_mode=short_render_mode, # <--- Mode
+                                bg_color=short_bg_color        # <--- Couleur
                             )
-                            
+                            progress_short.progress(100, text="100% !")
+                            time.sleep(0.5)
                             progress_short_container.empty()
                             st.session_state["generated_short_path"] = short_path
-                            st.success("Short généré !")
+                            st.success("Short généré ! 🎉")
+                            time.sleep(1)
                             st.rerun()
                         except Exception as e:
                             progress_short_container.empty()
                             st.error(f"Erreur : {e}")
 
             with col_s2:
-                st.subheader("Aperçu & Upload")
+                st.subheader(t("preview"))
                 short_current = st.session_state.get("generated_short_path")
-                
                 if short_current and os.path.exists(short_current):
                     st.video(short_current)
-                    
                     with open(short_current, "rb") as f:
-                        st.download_button("Télécharger Short 📥", data=f, file_name="short_reels.mp4", mime="video/mp4", use_container_width=True)
-
+                        st.download_button(t("btn_dl"), data=f, file_name="short_reels.mp4", mime="video/mp4", use_container_width=True)
                     st.divider()
-                    st.markdown("**Upload YouTube Shorts**")
-                    
                     if YouTubeUploader and os.path.exists("token.pickle"):
-                        privacy_short = st.selectbox("Visibilité Short", ["private", "unlisted", "public"], key="privacy_short")
-                        
-                        if st.button("Envoyer Short sur YouTube 🔴", type="primary", use_container_width=True):
+                        privacy_short = st.selectbox(t("vis_short"), ["private", "unlisted", "public"], key="privacy_short")
+                        if st.button(t("btn_send_short"), type="primary", use_container_width=True):
                             try:
                                 uploader = YouTubeUploader()
                                 base_title = get_episode_label(selected_mp3).replace("🎙️ ", "")
                                 short_title = f"{base_title} #Shorts"
                                 short_desc = f"Extrait de l'épisode : {base_title}\n\nGénéré par Oppodcast #Shorts"
-                                
-                                with st.spinner("Upload du Short..."):
+                                with st.spinner(t("uploading_short")):
                                     link = uploader.upload_video(short_current, short_title, short_desc, privacy=privacy_short)
-                                    st.success(f"✅ Short en ligne ! [Voir]({link})")
+                                    st.success(f"{t('short_online')}({link})")
                                     st.balloons()
-                            except Exception as e:
-                                st.error(f"Erreur Upload : {e}")
-                    else:
-                        st.info("Configurez YouTube (token.pickle) pour uploader.")
+                            except Exception as e: st.error(f"Erreur Upload : {e}")
+                    else: st.info(t("configure_yt"))
+                else: st.info(t("config_gen_first"))
 
-                else:
-                    st.info("Configurez et lancez la génération.")
-
-# --- 5. HISTORIQUE (EXPANDER FERMÉ) ---
-with st.expander("🗄️ Historique récent", expanded=False):
+# --- 5. HISTORIQUE ---
+with st.expander(t("hist_title"), expanded=False):
     history_files = [f for f in os.listdir(INBOX_DIR) if f.endswith(".json")]
     history_files.sort(key=lambda x: os.path.getctime(os.path.join(INBOX_DIR, x)), reverse=True)
-
     if history_files:
         history_data = []
-        for f in history_files[:5]: # Top 5
+        for f in history_files[:5]:
             try:
                 with open(os.path.join(INBOX_DIR, f), "r", encoding="utf-8") as json_file:
                     data = json.load(json_file)
                     date_str = datetime.fromtimestamp(float(data.get("created_at", 0))).strftime("%d/%m %H:%M")
                     history_data.append({
-                        "Date": date_str,
-                        "Titre": data.get("title"),
-                        "Statut": data.get("status", "N/A"),
-                        "ID": data.get("id")[:8]
+                        t("date"): date_str, 
+                        t("title"): data.get("title"), 
+                        t("status"): data.get("status", "N/A"), 
+                        t("id"): data.get("id")[:8]
                     })
             except: pass
-        
         st.dataframe(history_data, use_container_width=True, hide_index=True)
-    else:
-        st.caption("Aucun historique disponible.")
+    else: st.caption(t("hist_none"))
