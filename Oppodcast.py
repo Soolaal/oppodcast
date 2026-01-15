@@ -155,7 +155,6 @@ with st.expander("📤 1. Nouvel Épisode", expanded=True):
             uploaded_file = st.file_uploader("Fichier Audio (MP3/WAV)", type=["mp3", "wav"], label_visibility="collapsed")
             
             if uploaded_file:
-                # --- PREVIEW AUDIO (NOUVEAU) ---
                 st.audio(uploaded_file, format='audio/mp3')
 
                 with st.expander("Détails de l'épisode", expanded=True):
@@ -198,13 +197,10 @@ with st.expander("📸 2. Studio Instagram", expanded=False):
             gen_tool = InstaGenerator()
             available_fonts = gen_tool.get_available_fonts()
             
-            # Layout en 2 colonnes : Config | Prévisualisation
             col_conf, col_preview = st.columns([1, 1], gap="large")
             
             with col_conf:
                 st.subheader("Personnalisation")
-                
-                # Onglets pour organiser les options
                 tab_visuel, tab_texte = st.tabs(["Visuel", "Texte"])
                 
                 with tab_visuel:
@@ -280,7 +276,7 @@ with st.expander("📸 2. Studio Instagram", expanded=False):
 # --- SECTION 3 : YOUTUBE STUDIO (EXPANDER FERMÉ) ---
 with st.expander("🎬 3. Studio YouTube", expanded=False):
     if not YouTubeGenerator:
-        st.error("❌ Module `youtube_generator` manquant (moviepy?).")
+        st.error("❌ Module `youtube_generator` manquant.")
     else:
         with st.container(border=True):
             col_y1, col_y2 = st.columns([1, 1], gap="large")
@@ -288,7 +284,6 @@ with st.expander("🎬 3. Studio YouTube", expanded=False):
             with col_y1:
                 st.subheader("Création de la vidéo")
                 
-                # Selecteur intelligent
                 mp3_files = [f for f in os.listdir(INBOX_DIR) if f.endswith(".mp3")]
                 mp3_files.sort(key=lambda x: os.path.getctime(os.path.join(INBOX_DIR, x)), reverse=True)
                 
@@ -306,16 +301,32 @@ with st.expander("🎬 3. Studio YouTube", expanded=False):
                     audio_path = os.path.join(INBOX_DIR, selected_mp3)
                     fmt = "square" if "Carré" in video_format else "landscape"
                     
-                    with st.spinner(f"Encodage de '{display_name}' en cours..."):
-                        try:
-                            yt_gen = YouTubeGenerator(output_dir=GENERATED_DIR)
-                            vid_path = yt_gen.generate_video(audio_path, current_img, output_filename, format=fmt)
-                            st.session_state["generated_video_path"] = vid_path
-                            st.session_state["video_mp3_source"] = selected_mp3
-                            st.success("Rendu terminé !")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erreur rendu : {e}")
+                    # --- BARRE DE CHARGEMENT VIDÉO ---
+                    progress_container = st.empty()
+                    progress_bar = progress_container.progress(0, text="Initialisation de l'encodage...")
+                    
+                    def update_progress(percent):
+                        progress_bar.progress(percent, text=f"Encodage en cours... {percent}%")
+                    
+                    try:
+                        yt_gen = YouTubeGenerator(output_dir=GENERATED_DIR)
+                        vid_path = yt_gen.generate_video(
+                            audio_path, 
+                            current_img, 
+                            output_filename, 
+                            format=fmt,
+                            progress_callback=update_progress # <--- Callback
+                        )
+                        
+                        progress_container.empty()
+                        st.session_state["generated_video_path"] = vid_path
+                        st.session_state["video_mp3_source"] = selected_mp3
+                        st.success("Rendu terminé avec succès ! 🎉")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        progress_container.empty()
+                        st.error(f"Erreur rendu : {e}")
 
             with col_y2:
                 st.subheader("Aperçu & Upload")
@@ -332,10 +343,8 @@ with st.expander("🎬 3. Studio YouTube", expanded=False):
                     if YouTubeUploader and os.path.exists("token.pickle"):
                         privacy = st.selectbox("Visibilité", ["private", "unlisted", "public"])
                         if st.button("Envoyer sur YouTube", type="primary", use_container_width=True):
-                            # --- LOGIQUE D'UPLOAD ---
                             try:
                                 uploader = YouTubeUploader()
-                                # Récupération des infos depuis le fichier JSON
                                 json_path = os.path.join(INBOX_DIR, st.session_state["video_mp3_source"].replace(".mp3", ".json"))
                                 vid_title = get_episode_label(st.session_state["video_mp3_source"]).replace("🎙️ ", "")
                                 vid_desc = "Généré par Oppodcast."
@@ -359,7 +368,7 @@ with st.expander("🎬 3. Studio YouTube", expanded=False):
 # --- SECTION 4 : STUDIO SHORTS (EXPANDER FERMÉ) ---
 with st.expander("📱 4. Studio Shorts (Reels/TikTok)", expanded=False):
     if not ShortsGenerator:
-        st.warning("Module Shorts manquant. Créez 'shorts_generator.py'.")
+        st.warning("Module Shorts manquant.")
     else:
         with st.container(border=True):
             col_s1, col_s2 = st.columns([1, 1], gap="large")
@@ -367,34 +376,46 @@ with st.expander("📱 4. Studio Shorts (Reels/TikTok)", expanded=False):
             with col_s1:
                 st.subheader("Création du Short")
                 
-                # On réutilise le MP3 et l'image sélectionnés plus haut
                 if 'selected_mp3' not in locals() or not selected_mp3 or not st.session_state["generated_img_path"]:
-                    st.warning("Sélectionnez un épisode et générez une image d'abord (Section YouTube).")
+                    st.warning("Sélectionnez un épisode et générez une image d'abord.")
                 else:
                     st.info(f"Source : {get_episode_label(selected_mp3)}")
                     
                     c_t1, c_t2 = st.columns(2)
                     start_time = c_t1.number_input("Début (secondes)", min_value=0, value=0)
-                    duration = c_t2.number_input("Durée (secondes)", min_value=15, max_value=60, value=58) # Max 60s pour Shorts
+                    duration = c_t2.number_input("Durée (secondes)", min_value=15, max_value=60, value=58) 
                     
                     if st.button("🎬 Générer le Short", type="primary"):
                         short_name = f"short_{uuid.uuid4()}.mp4"
                         audio_full_path = os.path.join(INBOX_DIR, selected_mp3)
                         img_full_path = st.session_state["generated_img_path"]
                         
-                        with st.spinner("Génération du Short vertical..."):
-                            try:
-                                sg = ShortsGenerator(output_dir=GENERATED_DIR)
-                                short_path = sg.generate_short(
-                                    audio_full_path, img_full_path, 
-                                    start_time=start_time, duration=duration, 
-                                    output_filename=short_name
-                                )
-                                st.session_state["generated_short_path"] = short_path
-                                st.success("Short généré !")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erreur : {e}")
+                        # --- BARRE DE CHARGEMENT SHORT ---
+                        progress_short_container = st.empty()
+                        progress_short = progress_short_container.progress(0, text="Initialisation Short...")
+                        
+                        def update_short_bar(percent):
+                            progress_short.progress(percent, text=f"Génération Short... {percent}%")
+                        
+                        try:
+                            sg = ShortsGenerator(output_dir=GENERATED_DIR)
+                            
+                            short_path = sg.generate_short(
+                                audio_full_path, 
+                                img_full_path, 
+                                start_time=start_time, 
+                                duration=duration, 
+                                output_filename=short_name,
+                                progress_callback=update_short_bar # <--- Callback Short
+                            )
+                            
+                            progress_short_container.empty()
+                            st.session_state["generated_short_path"] = short_path
+                            st.success("Short généré !")
+                            st.rerun()
+                        except Exception as e:
+                            progress_short_container.empty()
+                            st.error(f"Erreur : {e}")
 
             with col_s2:
                 st.subheader("Aperçu & Upload")
@@ -410,15 +431,12 @@ with st.expander("📱 4. Studio Shorts (Reels/TikTok)", expanded=False):
                     st.markdown("**Upload YouTube Shorts**")
                     
                     if YouTubeUploader and os.path.exists("token.pickle"):
-                        # On met un selectbox unique pour éviter les conflits de clé avec l'autre section
                         privacy_short = st.selectbox("Visibilité Short", ["private", "unlisted", "public"], key="privacy_short")
                         
                         if st.button("Envoyer Short sur YouTube 🔴", type="primary", use_container_width=True):
                             try:
                                 uploader = YouTubeUploader()
-                                # Récupération des infos
                                 base_title = get_episode_label(selected_mp3).replace("🎙️ ", "")
-                                # Ajout du tag #Shorts obligatoire pour la détection
                                 short_title = f"{base_title} #Shorts"
                                 short_desc = f"Extrait de l'épisode : {base_title}\n\nGénéré par Oppodcast #Shorts"
                                 
