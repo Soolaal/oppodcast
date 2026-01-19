@@ -12,7 +12,7 @@ def run_app():
     worker_process = subprocess.Popen([sys.executable, "worker.py"])
     print(f"Worker démarré (PID: {worker_process.pid})")
 
-    streamlit_cmd = [sys.executable, "-m", "streamlit", "run", "Oppodcast.py", "--server.headless=true"]
+    streamlit_cmd = [sys.executable, "-m", "streamlit", "run", "Oppodcast_Studio.py", "--server.headless=true"]
     streamlit_process = subprocess.Popen(streamlit_cmd)
     print(f"Streamlit démarré (PID: {streamlit_process.pid})")
 
