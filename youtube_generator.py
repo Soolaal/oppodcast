@@ -14,56 +14,56 @@ class YouTubeGenerator:
 
     def generate_video(self, audio_path, image_path, output_filename="video.mp4", format="square", progress_callback=None, render_mode="balanced", bg_color="#000000"):
         """
-        render_mode: 'turbo' (couleur), 'balanced' (fake blur), 'quality' (boxblur)
+        render_mode: 
+          - 'turbo': Fond couleur unie (Rapide)
+          - 'balanced': Flou léger optimisé (Standard)
+          - 'quality': Flou artistique + Zoom lent (Lent)
         """
         output_path = os.path.join(self.output_dir, output_filename)
         total_duration = self.get_audio_duration(audio_path)
-        print(f"🌊 [YouTube {render_mode.upper()}] Génération : {output_filename}")
+        print(f"[YouTube {render_mode.upper()}] Génération PC : {output_filename}")
 
         if format == "square":
             W, H = 1080, 1080
-            fg_size = 650
-            wave_h = 250
-            wave_y = "H-300"
+            fg_size = 750
+            wave_h = 280
+            wave_y = "H-320"
         else:
-            W, H = 1280, 720
-            fg_size = 500
-            wave_h = 150
-            wave_y = "H-180"
+            W, H = 1920, 1080 
+            fg_size = 700
+            wave_h = 250
+            wave_y = "H-250"
 
-        # --- CONSTRUCTION DU FOND SELON LE MODE ---
         bg_filter = ""
+        fg_input = "[0:v]" 
         
         if render_mode == "turbo":
-            # Fond Couleur Unie (Zéro CPU)
-            # On génère une source couleur 'color'
+
             bg_filter = (
                 f"color=c={bg_color}:s={W}x{H}:d={total_duration}[bg];"
             )
-            # Pas besoin de l'input [0] pour le fond, on l'utilise direct pour le premier plan
+
             fg_input = "[0:v]"
         
         elif render_mode == "balanced":
-            # Fond Scale Down/Up (Rapide)
+
             bg_filter = (
-                f"[0:v]scale=50:-1:force_original_aspect_ratio=increase[low];"
-                f"[low]scale={W}:{H},setsar=1,eq=brightness=-0.3[bg];"
+                f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                f"gblur=sigma=20:steps=2,eq=brightness=-0.3[bg];"
             )
             fg_input = "[0:v]"
 
-        else: # quality
-            # Fond BoxBlur (Lent)
+        else:
             bg_filter = (
-                f"[0:v]scale={int(W*1.2)}:{int(H*1.2)}:force_original_aspect_ratio=increase,"
-                f"crop={W}:{H},boxblur=20:2,eq=brightness=-0.3[bg];"
+                f"[0:v]scale=8000:-1,zoompan=z='min(zoom+0.0002,1.2)':d={total_duration*25}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H},"
+                f"gblur=sigma=30:steps=3,eq=brightness=-0.4[bg];"
             )
             fg_input = "[0:v]"
 
-        # --- RESTE DU FILTRE ---
         filter_complex = (
             bg_filter +
             f"{fg_input}scale=-1:{fg_size}:force_original_aspect_ratio=decrease[fg];"
-            f"[1:a]showwaves=s={W}x{wave_h}:mode=cline:colors=white@0.7[wave];"
+            f"[1:a]showwaves=s={W}x{wave_h}:mode=cline:colors=white@0.8:rate=25[wave];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2[comp1];"
             f"[comp1][wave]overlay=x=0:y={wave_y}:format=auto[outv]"
         )
@@ -72,24 +72,30 @@ class YouTubeGenerator:
             "ffmpeg", "-y", "-loop", "1", "-i", image_path, "-i", audio_path,
             "-filter_complex", filter_complex,
             "-map", "[outv]", "-map", "1:a",
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
-            "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", "-threads", "2",
+            
+            "-c:v", "libx264", 
+            "-preset", "medium", 
+            "-crf", "23", 
+            "-tune", "stillimage", 
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-pix_fmt", "yuv420p",
             output_path
         ]
 
-        # Execution + Progress (inchangé)
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         pattern = re.compile(r"time=(\d{2}):(\d{2}):(\d{2}\.\d{2})")
+        
         while True:
             line = process.stderr.readline()
             if not line and process.poll() is not None: break
-            if line and total_duration > 0 and progress_callback:
+            if line:
                 print(line.strip())
-                match = pattern.search(line)
-                if match:
-                    h, m, s = map(float, match.groups())
-                    curr = h*3600 + m*60 + s
-                    progress_callback(min(int((curr/total_duration)*100), 99))
+                if total_duration > 0 and progress_callback:
+                    match = pattern.search(line)
+                    if match:
+                        h, m, s = map(float, match.groups())
+                        curr = h*3600 + m*60 + s
+                        progress_callback(min(int((curr/total_duration)*100), 99))
         
         if process.returncode != 0: raise RuntimeError("FFmpeg Error")
         if progress_callback: progress_callback(100)

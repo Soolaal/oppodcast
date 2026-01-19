@@ -5,17 +5,31 @@ import uuid
 import time
 from datetime import datetime
 
-# --- GESTION DES NOTIFICATIONS WORKER ---
+# --- FONCTION CRITIQUE : FILE D'ATTENTE ---
+def add_job_to_queue(job_data):
+    """Ajoute une tâche au fichier centralisé jobs.json"""
+    jobs_file = "jobs.json"
+    if os.path.exists(jobs_file):
+        try:
+            with open(jobs_file, "r") as f: jobs = json.load(f)
+        except: jobs = {}
+    else:
+        jobs = {}
+    
+    jobs[job_data["id"]] = job_data
+    
+    # Sauvegarde atomique
+    temp_file = f"{jobs_file}.tmp"
+    with open(temp_file, "w") as f:
+        json.dump(jobs, f, indent=4)
+    os.replace(temp_file, jobs_file)
+
+# --- NOTIFICATIONS WORKER ---
 def check_job_notifications():
     if not os.path.exists("jobs.json"): return
-    
     try:
-        with open("jobs.json", "r") as f:
-            jobs = json.load(f)
-        
-        if "notified_jobs" not in st.session_state:
-            st.session_state["notified_jobs"] = set()
-            
+        with open("jobs.json", "r") as f: jobs = json.load(f)
+        if "notified_jobs" not in st.session_state: st.session_state["notified_jobs"] = set()
         for jid, data in jobs.items():
             state_key = f"{jid}_{data['status']}"
             if state_key not in st.session_state["notified_jobs"]:
@@ -29,26 +43,7 @@ def check_job_notifications():
 
 check_job_notifications()
 
-
-def add_job_to_queue(job_data):
-    """Ajoute une tâche au fichier centralisé jobs.json"""
-    jobs_file = "jobs.json"
-    if os.path.exists(jobs_file):
-        try:
-            with open(jobs_file, "r") as f: jobs = json.load(f)
-        except: jobs = {}
-    else:
-        jobs = {}
-    
-    jobs[job_data["id"]] = job_data
-    
-
-    temp_file = f"{jobs_file}.tmp"
-    with open(temp_file, "w") as f:
-        json.dump(jobs, f, indent=4)
-    os.replace(temp_file, jobs_file)
-
-
+# --- 1. CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="Oppodcast Studio",
     page_icon="🎙️",
@@ -56,21 +51,149 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- CSS PRO (Style amélioré) ---
 st.markdown("""
 <style>
-    .block-container {padding-top: 2rem;}
-    h1 {color: #FF4B4B; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;} 
-    h2, h3 {font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;}
-    .stButton button {width: 100%; border-radius: 8px; font-weight: 600;}
-    div[data-testid="stExpander"] {border: 1px solid #333; border-radius: 8px;}
-    div[data-baseweb="input"] {border-radius: 6px;}
+    /* 1. Structure Globale */
+    .block-container {
+        padding-top: 2rem;
+        max-width: 1200px;
+    }
+    
+    /* 2. Typographie "Pro" */
+    h1 {
+        color: #FF4B4B; 
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
+        font-size: 2.5rem !important;
+        font-weight: 800;
+        margin-bottom: 1rem;
+    }
+    h2, h3 {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        color: #FAFAFA;
+    }
+    
+    /* 3. Carte / Expander */
+    div[data-testid="stExpander"] {
+        border: 1px solid #444 !important;
+        border-radius: 12px !important;
+        background-color: #1E1E1E !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        margin-bottom: 1rem;
+    }
+    
+    div[data-testid="stExpander"] summary {
+        background-color: #262730 !important;
+        border-radius: 12px 12px 0 0 !important;
+        padding: 1rem !important;
+    }
+
+    div[data-testid="stExpander"] summary p {
+        font-size: 1.2rem !important;
+        font-weight: 600 !important;
+        color: #FFF !important;
+    }
+    
+    div[data-testid="stExpander"] > div[role="group"] {
+        padding: 1.5rem;
+    }
+
+    /* 4. Boutons & Inputs */
+    .stButton button {
+        border-radius: 8px; 
+        font-weight: 600; 
+        font-size: 1rem;
+        height: 3rem;
+        transition: all 0.2s;
+    }
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(255, 75, 75, 0.4);
+    }
+    
+    div[data-baseweb="input"] {
+        border-radius: 8px;
+        background-color: #0E1117;
+        border: 1px solid #333;
+    }
+    
+    div[data-baseweb="select"] > div {
+        background-color: #0E1117;
+        border-radius: 8px;
+        border: 1px solid #333;
+    }
+
+       /* 7. Radio Buttons Style "Cards" (Sidebar Fix) */
+    
+    /* Cible le conteneur principal du widget radio */
+    div[role="radiogroup"] {
+        background-color: transparent !important;
+        border: none !important;
+        display: flex !important;
+        flex-direction: row !important;
+        width: 100% !important;
+        gap: 10px !important;
+    }
+
+    /* Force chaque option à être un bloc flexible */
+    div[role="radiogroup"] > label {
+        flex: 1 1 0px !important; /* Force la même largeur pour tous */
+        width: 100% !important;   /* Prend toute la place dispo dans son flex-item */
+        margin: 0 !important;
+        padding: 10px !important;
+        background-color: #262730 !important;
+        border: 1px solid #444 !important;
+        border-radius: 8px !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+        cursor: pointer !important;
+    }
+
+    /* Cache le petit rond moche de Streamlit */
+    div[role="radiogroup"] label > div:first-child {
+        display: none !important;
+    }
+
+    /* Style du texte à l'intérieur */
+    div[role="radiogroup"] label > div:last-child {
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Style sélectionné (Streamlit ajoute data-checked="true" au div interne) */
+    /* Astuce : on ne peut pas facilement cibler le parent en CSS pur, 
+       donc on cible le survol et le focus pour l'effet visuel. */
+    
+    div[role="radiogroup"] label:hover {
+        border-color: #FF4B4B !important;
+        background-color: #333 !important;
+    }
+    
+    /* Effet au survol */
+    div[role="radiogroup"] label:hover {
+        border-color: #FF4B4B;
+        background-color: #2d2f36;
+    }
+    
+    /* Style quand c'est sélectionné (Checked) - Streamlit met un div spécifique autour */
+    div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child {
+        /* C'est le petit rond, on peut le garder ou le cacher */
+    }
+    
+    p, label { color: #E0E0E0 !important; }
+    hr { margin: 2rem 0; border-color: #444; }
 </style>
 """, unsafe_allow_html=True)
 
+
+# --- IMPORTS ---
 try: from insta_generator import InstaGenerator
 except ImportError: InstaGenerator = None
-try: from telegram_notifier import TelegramNotifier
-except ImportError: TelegramNotifier = None
+# Telegram supprimé ici
 try: from youtube_generator import YouTubeGenerator
 except ImportError: YouTubeGenerator = None
 try: from youtube_uploader import YouTubeUploader
@@ -80,8 +203,9 @@ except ImportError: ShortsGenerator = None
 try: from translations import TRANS
 except ImportError: 
     TRANS = {"fr": {}}
-    st.error(" Fichier translations.py manquant !")
+    st.error("⚠️ Fichier translations.py manquant !")
 
+# --- GESTION DES CHEMINS ---
 if os.path.exists("/share"): BASE_DIR = "/share/oppodcast"
 else: BASE_DIR = os.getcwd()
 
@@ -92,6 +216,7 @@ SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
 
 for d in [INBOX_DIR, GENERATED_DIR, ASSETS_DIR]: os.makedirs(d, exist_ok=True)
 
+# --- FONCTIONS UTILITAIRES ---
 def t(key):
     lang = st.session_state.get("language", "fr")
     return TRANS.get(lang, TRANS.get("fr", {})).get(key, key)
@@ -110,7 +235,6 @@ def save_secrets(data_dict):
     st.toast("Identifiants sauvegardés !", icon="💾")
 
 def get_episode_label(filename):
-
     json_name = filename.replace(".mp3", ".json")
     json_path = os.path.join(INBOX_DIR, json_name)
     if os.path.exists(json_path):
@@ -121,54 +245,81 @@ def get_episode_label(filename):
         except: pass
     return f"📁 {filename}"
 
-
+# --- SESSION STATE ---
 for key in ["generated_video_path", "generated_img_path", "video_mp3_source", "generated_short_path", "language"]:
     if key not in st.session_state: st.session_state[key] = None
 if st.session_state["language"] is None: st.session_state["language"] = "fr"
 
 # =========================================================
-
+# BARRE LATÉRALE
+# =========================================================
 secrets = load_secrets()
+logo_path = os.path.join(ASSETS_DIR, "logo.png")
+if os.path.exists(logo_path):
+    st.sidebar.image(logo_path, width='stretch')
+else:
+    st.sidebar.title("🎙️ Oppodcast")
 
-col_lang = st.sidebar.container()
-LANG_FLAGS = {"fr": "🇫🇷 Français", "en": "🇬🇧 English"}
-lang_choice = col_lang.radio(
-    "Language / Langue",
-    options=["fr", "en"],
-    format_func=lambda x: LANG_FLAGS.get(x, x),
-    index=0 if st.session_state["language"] == "fr" else 1,
-    horizontal=True
-)
-if lang_choice != st.session_state["language"]:
-    st.session_state["language"] = lang_choice
-    st.rerun()
+st.sidebar.header(t("settings"))
+
+# --- SÉLECTEUR DE LANGUE (Boutons Toggle Propres) ---
+st.sidebar.markdown("**Language / Langue**")
+col_fr, col_en = st.sidebar.columns(2, gap="small")
+
+current_lang = st.session_state.get("language", "fr")
+
+with col_fr:
+    if st.button(
+        "🇫🇷 Français", 
+        key="btn_fr",
+        type="primary" if current_lang == "fr" else "secondary",
+        width='stretch'
+    ):
+        if current_lang != "fr":
+            st.session_state["language"] = "fr"
+            st.rerun()
+
+with col_en:
+    if st.button(
+        "🇬🇧 English", 
+        key="btn_en",
+        type="primary" if current_lang == "en" else "secondary",
+        width='stretch'
+    ):
+        if current_lang != "en":
+            st.session_state["language"] = "en"
+            st.rerun()
+
+st.sidebar.divider()
 
 with st.sidebar.expander(t("vodio_account"), expanded=not secrets.get("vodio_login")):
     vodio_login = st.text_input(t("login"), value=secrets.get("vodio_login", ""))
     vodio_pass = st.text_input(t("password"), value=secrets.get("vodio_password", ""), type="password")
 
-with st.sidebar.expander(t("tg_bot"), expanded=False):
-    tg_token = st.text_input("Bot Token", value=secrets.get("tg_token", ""))
-    tg_chat_id = st.text_input("Chat ID", value=secrets.get("tg_chat_id", ""))
+# Section Telegram supprimée de la sidebar
 
 if st.sidebar.button(t("save_config"), type="primary"):
-    save_secrets({"vodio_login": vodio_login, "vodio_password": vodio_pass, "tg_token": tg_token, "tg_chat_id": tg_chat_id})
+    save_secrets({"vodio_login": vodio_login, "vodio_password": vodio_pass})
     st.rerun()
 
 st.sidebar.divider()
+st.sidebar.caption(f"{t('storage_path')} `{BASE_DIR}`")
+
 if not secrets.get("vodio_login"):
     st.title("🎙️ Studio Oppodcast")
     st.error(t("config_error"))
     st.stop()
 
 # =========================================================
-
+# APPLICATION PRINCIPALE
+# =========================================================
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.title("Oppodcast Studio")
     st.caption(f"{t('connected_as')} **{secrets['vodio_login']}**")
 st.markdown("---")
 
+# --- SECTION 1 : UPLOAD ---
 with st.expander(t("s1_title"), expanded=True):
     with st.container(border=True):
         col_u1, col_u2 = st.columns([1, 2])
@@ -197,11 +348,11 @@ with st.expander(t("s1_title"), expanded=True):
                             
                             job_data = {
                                 "id": job_id,
-                                "type": "upload_vodio",  
+                                "type": "upload_vodio",
                                 "title": title,
                                 "description": description,
-                                "mp3_file": mp3_filename,    
-                                "audio_path": mp3_path,       
+                                "mp3_file": mp3_filename,
+                                "audio_path": mp3_path,
                                 "status": "pending",
                                 "created_at": time.time(),
                                 "progress": 0
@@ -217,7 +368,6 @@ with st.expander(t("s1_title"), expanded=True):
                             st.rerun()
                         else:
                             st.error(t("err_title"))
-
 
 # --- SECTION 2 : INSTAGRAM STUDIO ---
 with st.expander(t("s2_title"), expanded=False):
@@ -253,7 +403,7 @@ with st.expander(t("s2_title"), expanded=False):
                     selected_font = c_font1.selectbox(t("font"), available_fonts)
                     font_size = c_font2.slider(t("size"), 30, 150, 70)
 
-                if st.button(t("btn_gen_img"), type="primary", use_container_width=True):
+                if st.button(t("btn_gen_img"), type="primary", width='stretch'):
                     try:
                         output_filename = f"insta_{uuid.uuid4()}.png"
                         output_path = os.path.join(GENERATED_DIR, output_filename)
@@ -270,19 +420,9 @@ with st.expander(t("s2_title"), expanded=False):
                 st.subheader(t("preview"))
                 if st.session_state["generated_img_path"] and os.path.exists(st.session_state["generated_img_path"]):
                     img_path = st.session_state["generated_img_path"]
-                    st.image(img_path, caption="Post Instagram généré", use_container_width=True)
-                    c_dl, c_tg = st.columns(2)
-                    with c_dl:
-                        with open(img_path, "rb") as file:
-                            st.download_button(t("btn_dl"), data=file, file_name="post.png", mime="image/png", use_container_width=True)
-                    with c_tg:
-                        if st.button(t("btn_tg"), use_container_width=True):
-                            if TelegramNotifier and secrets.get("tg_token"):
-                                notif = TelegramNotifier(secrets["tg_token"], secrets["tg_chat_id"])
-                                cap = f"🎙 {insta_title}\n\n#{insta_ep_num}"
-                                if notif.send_photo(img_path, cap): st.success(t("sent_tg"))
-                                else: st.error(t("err_tg"))
-                            else: st.warning(t("warn_tg"))
+                    st.image(img_path, caption="Post Instagram généré", width='stretch')
+                    with open(img_path, "rb") as file:
+                        st.download_button(t("btn_dl"), data=file, file_name="post.png", mime="image/png", width='stretch')
                 else: st.info(t("info_click_gen"))
 
 # --- SECTION 3 : YOUTUBE STUDIO ---
@@ -303,7 +443,6 @@ with st.expander(t("s3_title"), expanded=False):
                 
                 st.divider()
                 st.markdown(f"##### {t('perf_settings')}")
-                # CHOIX DU MODE DE RENDU
                 render_mode = st.selectbox(
                     t("render_mode"),
                     options=["turbo", "balanced", "quality"],
@@ -322,7 +461,7 @@ with st.expander(t("s3_title"), expanded=False):
                 if not current_img:
                     st.warning(t("warn_img"))
                 
-                if st.button(t("btn_render_vid"), type="primary", disabled=(not selected_mp3 or not current_img), use_container_width=True):
+                if st.button(t("btn_render_vid"), type="primary", disabled=(not selected_mp3 or not current_img), width='stretch'):
                     display_name = get_episode_label(selected_mp3).replace("🎙️ ", "")
                     safe_name = "".join([c for c in display_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(" ", "_")
                     output_filename = f"{safe_name}.mp4"
@@ -338,8 +477,8 @@ with st.expander(t("s3_title"), expanded=False):
                         vid_path = yt_gen.generate_video(
                             audio_path, current_img, output_filename, format=fmt,
                             progress_callback=update_progress,
-                            render_mode=render_mode,   # <--- mode
-                            bg_color=bg_color_hex      # <--- couleur
+                            render_mode=render_mode,
+                            bg_color=bg_color_hex
                         )
                         progress_bar.progress(100, text="100% !")
                         time.sleep(0.5)
@@ -359,11 +498,11 @@ with st.expander(t("s3_title"), expanded=False):
                 if vid_path and os.path.exists(vid_path):
                     st.video(vid_path)
                     with open(vid_path, "rb") as f:
-                        st.download_button("Télécharger MP4", data=f, file_name=os.path.basename(vid_path), mime="video/mp4", use_container_width=True)
+                        st.download_button("Télécharger MP4", data=f, file_name=os.path.basename(vid_path), mime="video/mp4", width='stretch')
                     st.divider()
                     if YouTubeUploader and os.path.exists("token.pickle"):
                         privacy = st.selectbox(t("visibility"), ["private", "unlisted", "public"])
-                        if st.button(t("btn_send_yt"), type="primary", use_container_width=True):
+                        if st.button(t("btn_send_yt"), type="primary", width='stretch'):
                             try:
                                 uploader = YouTubeUploader()
                                 json_path = os.path.join(INBOX_DIR, st.session_state["video_mp3_source"].replace(".mp3", ".json"))
@@ -399,7 +538,6 @@ with st.expander(t("s4_title"), expanded=False):
                     
                     st.divider()
                     st.markdown(f"##### {t('perf_settings')}")
-                    # CHOIX DU MODE DE RENDU (SHORTS)
                     short_render_mode = st.selectbox(
                         t("render_mode_short"),
                         options=["turbo", "balanced", "quality"],
@@ -430,8 +568,8 @@ with st.expander(t("s4_title"), expanded=False):
                                 start_time=start_time, duration=duration, 
                                 output_filename=short_name,
                                 progress_callback=update_short_bar,
-                                render_mode=short_render_mode, # <--- Mode
-                                bg_color=short_bg_color        # <--- Couleur
+                                render_mode=short_render_mode,
+                                bg_color=short_bg_color
                             )
                             progress_short.progress(100, text="100% !")
                             time.sleep(0.5)
@@ -450,11 +588,11 @@ with st.expander(t("s4_title"), expanded=False):
                 if short_current and os.path.exists(short_current):
                     st.video(short_current)
                     with open(short_current, "rb") as f:
-                        st.download_button(t("btn_dl"), data=f, file_name="short_reels.mp4", mime="video/mp4", use_container_width=True)
+                        st.download_button(t("btn_dl"), data=f, file_name="short_reels.mp4", mime="video/mp4", width='stretch')
                     st.divider()
                     if YouTubeUploader and os.path.exists("token.pickle"):
                         privacy_short = st.selectbox(t("vis_short"), ["private", "unlisted", "public"], key="privacy_short")
-                        if st.button(t("btn_send_short"), type="primary", use_container_width=True):
+                        if st.button(t("btn_send_short"), type="primary", width='stretch'):
                             try:
                                 uploader = YouTubeUploader()
                                 base_title = get_episode_label(selected_mp3).replace("🎙️ ", "")
@@ -486,5 +624,5 @@ with st.expander(t("hist_title"), expanded=False):
                         t("id"): data.get("id")[:8]
                     })
             except: pass
-        st.dataframe(history_data, use_container_width=True, hide_index=True)
+        st.dataframe(history_data, width='stretch', hide_index=True)
     else: st.caption(t("hist_none"))
