@@ -5,7 +5,50 @@ import uuid
 import time
 from datetime import datetime
 
-# --- 1. CONFIGURATION DE LA PAGE ---
+# --- GESTION DES NOTIFICATIONS WORKER ---
+def check_job_notifications():
+    if not os.path.exists("jobs.json"): return
+    
+    try:
+        with open("jobs.json", "r") as f:
+            jobs = json.load(f)
+        
+        if "notified_jobs" not in st.session_state:
+            st.session_state["notified_jobs"] = set()
+            
+        for jid, data in jobs.items():
+            state_key = f"{jid}_{data['status']}"
+            if state_key not in st.session_state["notified_jobs"]:
+                if data["status"] == "completed":
+                    st.toast(f"✅ Tâche terminée : {data.get('type', 'Job')}", icon="🎉")
+                    st.session_state["notified_jobs"].add(state_key)
+                elif data["status"] == "failed":
+                    st.error(f"❌ Échec tâche {data.get('type')} : {data.get('error', 'Erreur inconnue')}", icon="🚨")
+                    st.session_state["notified_jobs"].add(state_key)
+    except Exception: pass
+
+check_job_notifications()
+
+
+def add_job_to_queue(job_data):
+    """Ajoute une tâche au fichier centralisé jobs.json"""
+    jobs_file = "jobs.json"
+    if os.path.exists(jobs_file):
+        try:
+            with open(jobs_file, "r") as f: jobs = json.load(f)
+        except: jobs = {}
+    else:
+        jobs = {}
+    
+    jobs[job_data["id"]] = job_data
+    
+
+    temp_file = f"{jobs_file}.tmp"
+    with open(temp_file, "w") as f:
+        json.dump(jobs, f, indent=4)
+    os.replace(temp_file, jobs_file)
+
+
 st.set_page_config(
     page_title="Oppodcast Studio",
     page_icon="🎙️",
@@ -13,7 +56,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS PERSONNALISÉ ---
 st.markdown("""
 <style>
     .block-container {padding-top: 2rem;}
@@ -22,15 +64,9 @@ st.markdown("""
     .stButton button {width: 100%; border-radius: 8px; font-weight: 600;}
     div[data-testid="stExpander"] {border: 1px solid #333; border-radius: 8px;}
     div[data-baseweb="input"] {border-radius: 6px;}
-    div[data-testid="stExpander"] summary p {
-        font-size: 1.3rem !important;
-        font-weight: 600 !important;
-        margin: 0 !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- IMPORTS ---
 try: from insta_generator import InstaGenerator
 except ImportError: InstaGenerator = None
 try: from telegram_notifier import TelegramNotifier
@@ -43,100 +79,69 @@ try: from shorts_generator import ShortsGenerator
 except ImportError: ShortsGenerator = None
 try: from translations import TRANS
 except ImportError: 
-    # Fallback si translations.py n'existe pas encore
     TRANS = {"fr": {}}
-    st.error("⚠️ Fichier translations.py manquant !")
+    st.error(" Fichier translations.py manquant !")
 
-# --- GESTION DES CHEMINS ---
-if os.path.exists("/share"):
-    BASE_DIR = "/share/oppodcast"
-else:
-    BASE_DIR = os.getcwd()
+if os.path.exists("/share"): BASE_DIR = "/share/oppodcast"
+else: BASE_DIR = os.getcwd()
 
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
 GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
 
-for d in [INBOX_DIR, GENERATED_DIR, ASSETS_DIR]:
-    os.makedirs(d, exist_ok=True)
+for d in [INBOX_DIR, GENERATED_DIR, ASSETS_DIR]: os.makedirs(d, exist_ok=True)
 
-# --- FONCTIONS UTILITAIRES ---
 def t(key):
-    """Récupère le texte dans la langue choisie"""
     lang = st.session_state.get("language", "fr")
-    # Retourne le texte ou la clé si introuvable, fallback sur français
     return TRANS.get(lang, TRANS.get("fr", {})).get(key, key)
 
 def load_secrets():
     if os.path.exists(SECRETS_PATH):
         try:
-            with open(SECRETS_PATH, "r") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            pass
+            with open(SECRETS_PATH, "r") as f: return json.load(f)
+        except: pass
     return {}
 
 def save_secrets(data_dict):
     current = load_secrets()
     current.update(data_dict)
-    with open(SECRETS_PATH, "w") as f:
-        json.dump(current, f)
+    with open(SECRETS_PATH, "w") as f: json.dump(current, f)
     st.toast("Identifiants sauvegardés !", icon="💾")
 
 def get_episode_label(filename):
+
     json_name = filename.replace(".mp3", ".json")
     json_path = os.path.join(INBOX_DIR, json_name)
     if os.path.exists(json_path):
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            real_title = data.get("title", t("untitled"))
-            return f"🎙️ {real_title}"
-        except:
-            pass
+            return f"🎙️ {data.get('title', t('untitled'))}"
+        except: pass
     return f"📁 {filename}"
 
-# --- SESSION STATE ---
+
 for key in ["generated_video_path", "generated_img_path", "video_mp3_source", "generated_short_path", "language"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-if st.session_state["language"] is None:
-    st.session_state["language"] = "fr" # Défaut
+    if key not in st.session_state: st.session_state[key] = None
+if st.session_state["language"] is None: st.session_state["language"] = "fr"
 
 # =========================================================
-# BARRE LATÉRALE
-# =========================================================
+
 secrets = load_secrets()
-logo_path = os.path.join(ASSETS_DIR, "logo.png")
-if os.path.exists(logo_path):
-    st.sidebar.image(logo_path, width=180)
 
-st.sidebar.header(t("settings"))
-
-# --- SÉLECTEUR DE LANGUE ---
-# On utilise radio avec une callback pour éviter le rerun explicite inutile
-# --- SÉLECTEUR DE LANGUE (AVEC DRAPEAUX) ---
 col_lang = st.sidebar.container()
-
-# Dictionnaire de mapping Code -> Drapeau
-LANG_FLAGS = {
-    "fr": "🇫🇷 Français",
-    "en": "🇬🇧 English"
-}
-
+LANG_FLAGS = {"fr": "🇫🇷 Français", "en": "🇬🇧 English"}
 lang_choice = col_lang.radio(
     "Language / Langue",
-    options=["fr", "en"], # Les valeurs réelles stockées
-    format_func=lambda x: LANG_FLAGS.get(x, x), # Ce qui est affiché à l'écran
+    options=["fr", "en"],
+    format_func=lambda x: LANG_FLAGS.get(x, x),
     index=0 if st.session_state["language"] == "fr" else 1,
     horizontal=True
 )
-
 if lang_choice != st.session_state["language"]:
     st.session_state["language"] = lang_choice
     st.rerun()
-
 
 with st.sidebar.expander(t("vodio_account"), expanded=not secrets.get("vodio_login")):
     vodio_login = st.text_input(t("login"), value=secrets.get("vodio_login", ""))
@@ -147,34 +152,23 @@ with st.sidebar.expander(t("tg_bot"), expanded=False):
     tg_chat_id = st.text_input("Chat ID", value=secrets.get("tg_chat_id", ""))
 
 if st.sidebar.button(t("save_config"), type="primary"):
-    save_secrets({
-        "vodio_login": vodio_login,
-        "vodio_password": vodio_pass,
-        "tg_token": tg_token,
-        "tg_chat_id": tg_chat_id
-    })
+    save_secrets({"vodio_login": vodio_login, "vodio_password": vodio_pass, "tg_token": tg_token, "tg_chat_id": tg_chat_id})
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.caption(f"{t('storage_path')} `{BASE_DIR}`")
-
 if not secrets.get("vodio_login"):
     st.title("🎙️ Studio Oppodcast")
     st.error(t("config_error"))
     st.stop()
 
 # =========================================================
-# APPLICATION PRINCIPALE
-# =========================================================
 
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.title("Oppodcast Studio")
     st.caption(f"{t('connected_as')} **{secrets['vodio_login']}**")
-
 st.markdown("---")
 
-# --- SECTION 1 : UPLOAD ---
 with st.expander(t("s1_title"), expanded=True):
     with st.container(border=True):
         col_u1, col_u2 = st.columns([1, 2])
@@ -197,20 +191,33 @@ with st.expander(t("s1_title"), expanded=True):
                             job_id = str(uuid.uuid4())
                             mp3_filename = f"{job_id}.mp3"
                             mp3_path = os.path.join(INBOX_DIR, mp3_filename)
+                            
                             with open(mp3_path, "wb") as f:
                                 f.write(uploaded_file.getbuffer())
+                            
                             job_data = {
-                                "id": job_id, "title": title, "description": description,
-                                "mp3_file": mp3_filename, "status": "pending",
-                                "created_at": str(os.path.getctime(mp3_path))
+                                "id": job_id,
+                                "type": "upload_vodio",  
+                                "title": title,
+                                "description": description,
+                                "mp3_file": mp3_filename,    
+                                "audio_path": mp3_path,       
+                                "status": "pending",
+                                "created_at": time.time(),
+                                "progress": 0
                             }
+                            
+                            add_job_to_queue(job_data)
+                            
                             with open(os.path.join(INBOX_DIR, f"{job_id}.json"), "w", encoding="utf-8") as f:
                                 json.dump(job_data, f, ensure_ascii=False, indent=4)
-                            st.success(f"{t('success_queue')} ({title})")
+
+                            st.success(f"✅ {title} ajouté à la file d'attente !")
                             time.sleep(1)
                             st.rerun()
                         else:
                             st.error(t("err_title"))
+
 
 # --- SECTION 2 : INSTAGRAM STUDIO ---
 with st.expander(t("s2_title"), expanded=False):
@@ -430,7 +437,7 @@ with st.expander(t("s4_title"), expanded=False):
                             time.sleep(0.5)
                             progress_short_container.empty()
                             st.session_state["generated_short_path"] = short_path
-                            st.success("Short généré !")
+                            st.success("Short généré ! ")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
