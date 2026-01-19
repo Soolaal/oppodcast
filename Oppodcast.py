@@ -331,8 +331,8 @@ with st.expander(t("s3_title"), expanded=False):
                         vid_path = yt_gen.generate_video(
                             audio_path, current_img, output_filename, format=fmt,
                             progress_callback=update_progress,
-                            render_mode=render_mode,   # <--- On passe le mode
-                            bg_color=bg_color_hex      # <--- On passe la couleur
+                            render_mode=render_mode,   # <--- mode
+                            bg_color=bg_color_hex      # <--- couleur
                         )
                         progress_bar.progress(100, text="100% !")
                         time.sleep(0.5)
@@ -430,7 +430,7 @@ with st.expander(t("s4_title"), expanded=False):
                             time.sleep(0.5)
                             progress_short_container.empty()
                             st.session_state["generated_short_path"] = short_path
-                            st.success("Short généré ! 🎉")
+                            st.success("Short généré !")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:

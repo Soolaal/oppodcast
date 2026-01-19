@@ -7,7 +7,7 @@ from vodio_uploader import VodioUploader
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- GESTION DES CHEMINS (UNIFIE AVEC L'APP) ---
+
 if os.path.exists("/share"):
     BASE_DIR = "/share/oppodcast"
 else:
@@ -16,7 +16,7 @@ else:
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
 SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
 
-# Création du dossier inbox s'il n'existe pas (sécurité)
+
 if not os.path.exists(INBOX_DIR):
     os.makedirs(INBOX_DIR, exist_ok=True)
 
