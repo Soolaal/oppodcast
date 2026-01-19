@@ -1,152 +1,143 @@
-# Oppodcast Studio V2
+# Oppodcast Studio (Web Edition)
 
-**Oppodcast Studio** is a self-hosted automation dashboard designed to streamline the complete podcast publishing workflow. Originally built to automate **Vodio** uploads, it has evolved into a full production suite for social media assets and YouTube distribution.
+**Oppodcast Studio** is a self-hosted automation dashboard designed to streamline the complete podcast publishing workflow.
 
-## Features
+Originally built to automate **Vodio** uploads via a headless browser, it has evolved into a full production suite for social media assets, YouTube distribution, and a soundboard for live recording.
 
-### 1. Podcast Hosting Automation (Vodio)
-*   **Queue System:** Uploads are queued locally and processed asynchronously.
-*   **Headless Worker:** Uses **Playwright** to log in to the Vodio interface and upload the episode file + metadata without user intervention.
-*   **Decoupled Architecture:** The web UI remains responsive while the heavy upload happens in the background.
-
-### 2. Instagram Studio
-*   **Asset Generation:** Create professional visuals (Square 1:1) instantly.
-*   **Custom Templates:** Upload your own background images (supports auto-cropping/fitting).
-*   **Typography Engine:** Custom font support (`.ttf`) with auto-sizing and positioning.
-*   **Real-time Preview:** Adjust colors, text size, and fonts live.
-
-### 3. YouTube Studio
-*   **Video Rendering:** Converts your MP3 + Generated Image into an MP4 video.
-*   **Smart Layouts:**
-    *   **Square (1:1):** Optimized for LinkedIn/Instagram/Facebook feeds.
-    *   **Landscape (16:9):** Classic YouTube format with an elegant blurred/darkened background effect.
-*   **Direct Upload:** Publishes the generated video directly to your YouTube channel via the official API.
-
-### 4. Notifications & delivery
-*   **Telegram Integration:** Sends the final visual + caption to your phone for easy sharing.
-*   **Status Updates:** Receive alerts when jobs are completed.
+> **Note:** This is the **Server/Web edition**. A Desktop version (optimized for low-latency live recording) is currently in development.
 
 ---
 
-## Architecture
+## Features
+
+### 1. Hosting Automation (Vodio)
+*   **Queue System:** Episodes are stored locally in an `inbox/` folder and processed sequentially.
+*   **Headless Worker:** A background process (using **Playwright**) logs into the Vodio interface to upload the episode file and metadata without user intervention.
+*   **Decoupled Architecture:** The web UI remains responsive while heavy upload tasks occur in the background.
+
+### 2. Instagram Studio
+*   **Asset Generation:** Create professional square (1:1) visuals instantly.
+*   **Custom Templates:** Upload your own background images (supports auto-darkening).
+*   **Typography Engine:** Custom font support (`.ttf`) with smart positioning.
+*   **Real-time Preview:** Adjust colors, text size, and fonts live.
+
+### 3. YouTube Studio
+*   **Video Rendering:** Converts your MP3 + Generated Image into an MP4 video (1080p).
+*   **Smart Layouts:**
+    *   **Square (1:1):** Optimized for LinkedIn/Instagram/Facebook feeds.
+    *   **Landscape (16:9):** Classic YouTube format with a blurred background effect.
+*   **Shorts Generator:** Automatically create 60s vertical clips (9:16) for TikTok/Reels/Shorts.
+*   **Direct Upload:** Publishes the video directly to your channel via the official Google Data API.
+
+### 4. Jingle Palette (Web)
+*   **Integrated Soundboard:** Trigger intros, outros, and sound effects directly from the browser.
+*   **Presets:** Create and save different sound grids for different shows.
+*   **Easy Upload:** Add your MP3/WAV files via simple drag-and-drop.
+
+---
+
+## Technical Architecture
 
 The application is split into components to ensure stability:
 
 *   **Frontend (`Oppodcast.py`):** Streamlit-based web interface for user interaction.
-*   **Worker (`worker.py`):** Background process watching the `inbox/` folder for Vodio uploads.
+*   **Worker (`worker.py`):** Background process monitoring the `jobs.json` file to trigger Vodio uploads.
 *   **Generators:** Python scripts (`youtube_generator.py`, `insta_generator.py`) handling media processing (Pillow, MoviePy).
 *   **Uploader (`youtube_uploader.py`):** Handles Google OAuth2 authentication.
 
 ---
 
-## Installation & Setup
+## Installation & Configuration
 
 ### Prerequisites
 *   **Docker** (Recommended) or Python 3.9+
-*   **Google Cloud Account** (Free tier is sufficient)
-*   **Telegram Account**
+*   **Google Cloud Account** (Free tier) for the YouTube API
 
-### 1. Directory Structure
-Create a project folder with the following structure:
+### 1. Project Structure
+Ensure your folder structure looks like this:
 
 ```text
 /oppodcast/
 ├── Dockerfile
+├── docker-compose.yml    <-- (Recommended)
 ├── requirements.txt
 ├── Oppodcast.py
 ├── worker.py
 ├── youtube_uploader.py
 ├── youtube_generator.py
 ├── insta_generator.py
-├── client_secret.json    <-- (See Step 3)
-├── token.pickle          <-- (See Step 3)
+├── jingle_palette.py
+├── client_secret.json    <-- (Google Auth - See Step 2)
+├── token.pickle          <-- (Google Token - See Step 2)
 └── assets/               <-- Place your .ttf fonts here
 ```
-### 2. Getting Telegram Credentials
 
-1.  Open Telegram and search for **@BotFather**.
-2.  Send the command `/newbot`.
-3.  Follow instructions to name your bot. You will get a **TOKEN** (e.g., `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`).
-4.  Search for **@userinfobot** (or any ID bot) and start it to get your personal **Chat ID** (e.g., `987654321`).
-5.  *Save these for the Oppodcast configuration sidebar.*
 
-### 3. Getting YouTube/Google Credentials
+### 2. Google/YouTube Credentials (Critical)
 
-**This is the most critical step.** Since Docker has no browser, you must authenticate once on your local PC.
+Since Docker has no browser, you must authenticate once on your local PC to generate the token.
 
-#### Phase A: Google Cloud Console
-1.  Go to [Google Cloud Console](https://console.cloud.google.com/).
-2.  Create a project (e.g., `Oppodcast`).
-3.  **Enable API:** Search for and enable **"YouTube Data API v3"**.
-4.  **OAuth Consent Screen:**
-    *   User Type: **External**.
-    *   **Test Users:** Add your own Gmail address (Crucial!).
-5.  **Credentials:**
-    *   Create Credentials > **OAuth Client ID**.
-    *   Type: **Desktop App**.
-    *   Download the JSON file, rename it to `client_secret.json`.
-    *   **Place this file in your project folder.**
+**Phase A: Google Cloud Console**
 
-#### Phase B: Generate the Token (Local PC)
-1.  Install dependencies locally:
-    ```bash
-    pip install google-auth-oauthlib google-api-python-client
-    ```
-2.  Run the uploader script manually:
-    ```bash
-    python youtube_uploader.py
-    ```
-3.  A browser window will open. Log in with the Gmail account you added as a Test User.
-    *   *Note: If you see "Google hasn't verified this app", click Advanced > Go to App (unsafe).*
-4.  Once successful, a file named **`token.pickle`** will appear in the folder.
-5.  **Copy this `token.pickle` file to your Docker/Server folder.**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable **"YouTube Data API v3"**.
+3. Configure **OAuth Consent Screen** (User Type: External, add your email as "Test User").
+4. Create **Credentials** -> **OAuth Client ID** (Desktop App).
+5. Download the JSON, rename it to `client_secret.json`, and place it in the project root.
+
+**Phase B: Generate Token (Local PC)**
+
+1. Install libraries: `pip install google-auth-oauthlib google-api-python-client`
+2. Run the script: `python youtube_uploader.py`
+3. Log in via the browser window that opens.
+4. **Copy the generated `token.pickle` file to your server/docker folder.**
 
 ---
 
-## Docker Deployment (Home Assistant / Portainer)
+## Docker Deployment (Portainer / Home Assistant)
 
-### Dockerfile
-Ensure your `Dockerfile` installs system dependencies for video processing:
+Use this `docker-compose.yml` to persist your configuration and tokens.
 
-```dockerfile
-FROM python:3.9-slim
+```yaml
+version: '3.8'
 
-# Install system dependencies (FFmpeg is required for video)
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libsm6 \
-    libxext6 \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-COPY . .
-RUN pip install -r requirements.txt
-
-# Expose Streamlit port
-EXPOSE 8501
-
-CMD ["streamlit", "run", "Oppodcast.py"]
-
+services:
+  oppodcast:
+    build: .
+    container_name: oppodcast_studio
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./assets:/app/assets
+      - ./inbox:/app/inbox
+      - ./generated:/app/generated
+      - ./presets:/app/presets          # To save Jingle Palette configs
+      - ./client_secret.json:/app/client_secret.json
+      - ./token.pickle:/app/token.pickle
+      - ./secrets.json:/app/secrets.json # To save Vodio login/pass
+    restart: unless-stopped
 ```
+
+
+---
+
 ## User Guide
 
-### Configuration
-1.  Open the Web UI (`http://your-ip:8501`).
-2.  Enter your Vodio Login/Pass and Telegram Token/ID in the sidebar.
-3.  Click **"Save"**.
+### 1. Initial Configuration
 
-### Workflow
-*   **Step 1:** Upload your MP3 in "Nouvel Épisode".
-*   **Step 2:** Go to **"Studio Instagram"**. Upload a background image (Template), customize the text, and generate the visual.
-*   **Step 3:** Go to **"Studio YouTube"**. Select the format (Square or Landscape) and generate the video.
-*   **Step 4:** Click **"Envoyer sur YouTube "** to publish immediately.
+Open the Web UI (`http://your-ip:8501`). Enter your Vodio credentials in the sidebar and click **Save**.
+
+### 2. Typical Workflow
+
+1. **New Episode:** Upload your MP3 in the "New Episode" tab. It is added to the queue, and the Worker will handle the upload to Vodio.
+2. **Instagram:** Go to **"Instagram Studio"**. Choose a template, edit the text, and generate the image.
+3. **YouTube:** Go to **"YouTube Studio"**. Select the format (Square/Landscape) -> Generate -> **"Upload to YouTube"**.
+4. **Live:** Use the **Jingle Palette** to play your sounds during recording.
 
 ---
 
 ## Known Limitations
 
-*   **Google Quotas:** Free API allows ~6 video uploads per day (10,000 units quota).
-*   **Vodio Changes:** The automation relies on the Vodio website DOM. If they change their interface, the `worker.py` script might need updates.
-*   **Token Expiry:** If the `token.pickle` expires (rarely happens in Testing mode), simply re-run the local generation step.
-
-
+* **Google Quotas:** The free API allows approximately 6 video uploads per day.
+* **Token Expiry:** If `token.pickle` expires, re-run Step 2 (Phase B) locally.
+* **Vodio Updates:** The automation relies on the Vodio website DOM. If their interface changes, `worker.py` may need updating.
