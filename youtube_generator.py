@@ -1,85 +1,96 @@
-from moviepy.editor import AudioFileClip, ImageClip, CompositeVideoClip, ColorClip
+import subprocess
 import os
-import PIL.Image
-
-if not hasattr(PIL.Image, 'ANTIALIAS'):
-    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+import re
 
 class YouTubeGenerator:
     def __init__(self, output_dir="generated"):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def generate_video(self, audio_path, image_path, output_filename="video.mp4", format="square"):
+    def get_audio_duration(self, audio_path):
+        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
+        try: return float(subprocess.check_output(cmd).decode().strip())
+        except: return 0.0
+
+    def generate_video(self, audio_path, image_path, output_filename="video.mp4", format="square", progress_callback=None, render_mode="balanced", bg_color="#000000"):
         """
-        Génère une vidéo avec effet de profondeur (Fond flou/sombre + Image nette).
+        render_mode: 'turbo' (couleur), 'balanced' (fake blur), 'quality' (boxblur)
         """
-        print(f"🎬 Génération vidéo ({format}) : {output_filename}...")
+        output_path = os.path.join(self.output_dir, output_filename)
+        total_duration = self.get_audio_duration(audio_path)
+        print(f"🌊 [YouTube {render_mode.upper()}] Génération : {output_filename}")
+
+        if format == "square":
+            W, H = 1080, 1080
+            fg_size = 650
+            wave_h = 250
+            wave_y = "H-300"
+        else:
+            W, H = 1280, 720
+            fg_size = 500
+            wave_h = 150
+            wave_y = "H-180"
+
+        # --- CONSTRUCTION DU FOND SELON LE MODE ---
+        bg_filter = ""
         
-        try:
-            # 1. Charger l'audio
-            audio_clip = AudioFileClip(audio_path)
-            duration = audio_clip.duration
-            
-            # --- CONFIGURATION DES TAILLES ---
-            if format == "square":
-                W, H = 1080, 1080
-                # ON DEZOOME LE PREMIER PLAN (Demande utilisateur : 60% environ)
-                # 60% de 1080px = 648px. On arrondit à 650px.
-                fg_size = 650 
-            else:
-                # Mode Paysage (16:9)
-                W, H = 1920, 1080
-                fg_size = 850
-
-            # 2. CRÉATION DU FOND (Background)
-            # On garde le fond bien rempli (zoom 120%)
-            bg_clip = (ImageClip(image_path)
-                       .set_duration(duration)
-                       .resize(height=H*1.2)
-                       .set_position("center"))
-            
-            # Opacité du fond (30%)
-            bg_clip = bg_clip.set_opacity(0.20)
-
-            # Fond noir solide derrière
-            black_bg = ColorClip(size=(W, H), color=(10,10,10)).set_duration(duration)
-
-            # 3. CRÉATION DU PREMIER PLAN (Foreground)
-            if format == "square":
-                 foreground = (ImageClip(image_path)
-                              .set_duration(duration)
-                              .resize(width=fg_size) # 650px de large
-                              .set_position("center"))
-            else:
-                 foreground = (ImageClip(image_path)
-                              .set_duration(duration)
-                              .resize(height=fg_size)
-                              .set_position("center"))
-
-            # 4. COMPOSITION
-            video = CompositeVideoClip(
-                [black_bg, bg_clip, foreground], 
-                size=(W, H)
+        if render_mode == "turbo":
+            # Fond Couleur Unie (Zéro CPU)
+            # On génère une source couleur 'color'
+            bg_filter = (
+                f"color=c={bg_color}:s={W}x{H}:d={total_duration}[bg];"
             )
-            
-            video = video.set_audio(audio_clip)
-            
-            # 5. EXPORT
-            output_path = os.path.join(self.output_dir, output_filename)
-            
-            video.write_videofile(
-                output_path, 
-                fps=1,
-                codec="libx264", 
-                audio_codec="aac",
-                preset="ultrafast",
-                threads=4
+            # Pas besoin de l'input [0] pour le fond, on l'utilise direct pour le premier plan
+            fg_input = "[0:v]"
+        
+        elif render_mode == "balanced":
+            # Fond Scale Down/Up (Rapide)
+            bg_filter = (
+                f"[0:v]scale=50:-1:force_original_aspect_ratio=increase[low];"
+                f"[low]scale={W}:{H},setsar=1,eq=brightness=-0.3[bg];"
             )
-            
-            print(f"✅ Vidéo générée : {output_path}")
-            return output_path
-            
-        except Exception as e:
-            print(f"Erreur : {e}")
-            raise e
+            fg_input = "[0:v]"
+
+        else: # quality
+            # Fond BoxBlur (Lent)
+            bg_filter = (
+                f"[0:v]scale={int(W*1.2)}:{int(H*1.2)}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{H},boxblur=20:2,eq=brightness=-0.3[bg];"
+            )
+            fg_input = "[0:v]"
+
+        # --- RESTE DU FILTRE ---
+        filter_complex = (
+            bg_filter +
+            f"{fg_input}scale=-1:{fg_size}:force_original_aspect_ratio=decrease[fg];"
+            f"[1:a]showwaves=s={W}x{wave_h}:mode=cline:colors=white@0.7[wave];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[comp1];"
+            f"[comp1][wave]overlay=x=0:y={wave_y}:format=auto[outv]"
+        )
+
+        cmd = [
+            "ffmpeg", "-y", "-loop", "1", "-i", image_path, "-i", audio_path,
+            "-filter_complex", filter_complex,
+            "-map", "[outv]", "-map", "1:a",
+            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
+            "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", "-threads", "2",
+            output_path
+        ]
+
+        # Execution + Progress (inchangé)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        pattern = re.compile(r"time=(\d{2}):(\d{2}):(\d{2}\.\d{2})")
+        while True:
+            line = process.stderr.readline()
+            if not line and process.poll() is not None: break
+            if line and total_duration > 0 and progress_callback:
+                print(line.strip())
+                match = pattern.search(line)
+                if match:
+                    h, m, s = map(float, match.groups())
+                    curr = h*3600 + m*60 + s
+                    progress_callback(min(int((curr/total_duration)*100), 99))
+        
+        if process.returncode != 0: raise RuntimeError("FFmpeg Error")
+        if progress_callback: progress_callback(100)
+        return output_path

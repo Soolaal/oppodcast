@@ -40,7 +40,7 @@ class InstaGenerator:
                 # Assombrir l'image pour que le texte ressorte
                 if darken_bg:
                     enhancer = ImageEnhance.Brightness(img)
-                    img = enhancer.enhance(0.4) # 40% de luminosité
+                    img = enhancer.enhance(0.9) # 90% de luminosité
                     
             except Exception as e:
                 print(f"Erreur Image de Fond: {e}, fallback couleur.")
