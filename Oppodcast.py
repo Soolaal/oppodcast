@@ -206,10 +206,9 @@ except ImportError:
     st.error("⚠️ Fichier translations.py manquant !")
 
 # --- GESTION DES CHEMINS ---
-USER_DOCS = os.path.expanduser("~/Documents")
-BASE_DIR = os.path.join(USER_DOCS, "Oppodcast Studio")
+if os.path.exists("/share"): BASE_DIR = "/share/oppodcast"
+else: BASE_DIR = os.getcwd()
 
-# On s'assure que les dossiers existent
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
 GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
